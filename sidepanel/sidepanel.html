@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatGPT Sidebar</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="top-bar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+          <circle cx="12" cy="12" r="10" fill="#10A37F"/>
+          <path d="M12 6v12M6 12h12M7.75 7.75l8.5 8.5M16.25 7.75l-8.5 8.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="brand-info">
+        <span class="brand-title">ChatGPT</span>
+        <span class="status-indicator" title="Sẵn sàng hoạt động">
+          <span class="status-dot"></span>
+          <span class="status-text">Sidebar</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Quick Action Toolbar -->
+    <nav class="action-tools">
+      <button id="btn-prompts" class="tool-btn" title="Bộ công cụ Prompt nhanh">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      </button>
+
+      <button id="btn-home" class="tool-btn" title="Về trang chủ ChatGPT">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </button>
+
+      <button id="btn-reload" class="tool-btn" title="Tải lại trang (Reload)">
+        <svg id="reload-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6"></path>
+          <path d="M1 20v-6h6"></path>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </button>
+
+      <button id="btn-open-tab" class="tool-btn" title="Mở ChatGPT trên Tab mới">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      </button>
+
+      <button id="btn-help" class="tool-btn" title="Hướng dẫn & Đăng nhập">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </button>
+    </nav>
+  </header>
+
+  <!-- Current Active Web Page Bar -->
+  <div class="active-page-bar">
+    <div class="active-page-main">
+      <div class="active-page-icon" id="active-page-icon">🌐</div>
+      <div class="active-page-details">
+        <div class="active-page-badge">TRANG ĐANG MỞ</div>
+        <div class="active-page-title" id="active-page-title" title="Đang kết nối trang...">Đang kết nối trang...</div>
+      </div>
+    </div>
+    <div class="active-page-actions">
+      <button id="btn-insert-page" class="btn-insert-page" title="Đưa toàn bộ nội dung trang web này vào ô chat ChatGPT để chuẩn bị phân tích">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4">
+          <path d="M12 5v14M5 12h14"></path>
+        </svg>
+        <span>Đưa vào ô chat</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Login Assistant Banner -->
+  <div id="login-banner" class="login-banner">
+    <div class="banner-content">
+      <span class="banner-icon">💡</span>
+      <div class="banner-text">
+        <strong>Chưa đăng nhập?</strong> Dùng Google / Apple / Microsoft, hãy bấm mở tab để xác thực rồi tải lại sidebar.
+      </div>
+    </div>
+    <div class="banner-actions">
+      <button id="btn-banner-login" class="banner-btn primary">🔑 Mở tab đăng nhập</button>
+      <button id="btn-banner-reload" class="banner-btn secondary">🔄 Tải lại</button>
+      <button id="btn-banner-close" class="banner-close" title="Ẩn thông báo">✕</button>
+    </div>
+  </div>
+
+
+  <!-- Quick Prompts Drawer -->
+  <aside id="prompts-drawer" class="prompts-drawer hidden">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#10A37F" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+        <span>Công cụ & Prompt nhanh</span>
+      </div>
+      <button id="btn-close-drawer" class="tool-btn small" title="Đóng">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <div class="prompt-group">
+        <div class="group-title">Tab hiện tại</div>
+        <button id="btn-summarize-page" class="prompt-item">
+          <span class="item-icon">📄</span>
+          <div class="item-info">
+            <span class="item-name">Tóm tắt trang web đang xem</span>
+            <span class="item-desc">Đọc nội dung trang hiện tại và tạo prompt tóm tắt</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="prompt-group">
+        <div class="group-title">Mẫu lệnh thông dụng</div>
+        <button class="prompt-item quick-template" data-template="Hãy dịch đoạn văn bản sau sang Tiếng Việt tự nhiên và chuẩn xác:\n\n[Dán văn bản vào đây]">
+          <span class="item-icon">🌐</span>
+          <div class="item-info">
+            <span class="item-name">Dịch sang Tiếng Việt</span>
+            <span class="item-desc">Dịch mượt mà, văn phong tự nhiên</span>
+          </div>
+        </button>
+
+        <button class="prompt-item quick-template" data-template="Hãy kiểm tra lỗi chính tả, ngữ pháp và viết lại đoạn văn sau cho chuyên nghiệp hơn:\n\n[Dán văn bản vào đây]">
+          <span class="item-icon">✍️</span>
+          <div class="item-info">
+            <span class="item-name">Sửa lỗi chính tả & Viết lại</span>
+            <span class="item-desc">Trau chuốt câu từ chuẩn văn phòng</span>
+          </div>
+        </button>
+
+        <button class="prompt-item quick-template" data-template="Hãy giải thích khái niệm sau một cách ngắn gọn, dễ hiểu nhất cho người mới bắt đầu:\n\n[Dán nội dung vào đây]">
+          <span class="item-icon">💡</span>
+          <div class="item-info">
+            <span class="item-name">Giải thích đơn giản</span>
+            <span class="item-desc">Dành cho người mới tiếp cận</span>
+          </div>
+        </button>
+
+        <button class="prompt-item quick-template" data-template="Hãy viết giúp tôi một email phản hồi chuyên nghiệp, lịch sự về vấn đề sau:\n\n[Nội dung cần phản hồi]">
+          <span class="item-icon">✉️</span>
+          <div class="item-info">
+            <span class="item-name">Soạn Email chuyên nghiệp</span>
+            <span class="item-desc">Lịch thiệp, chuẩn form công việc</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Iframe Container -->
+  <main class="frame-container">
+    <!-- Slim non-blocking top loading bar -->
+    <div id="progress-bar" class="progress-bar"></div>
+
+    <div id="error-overlay" class="error-overlay hidden">
+      <div class="error-icon">⚠️</div>
+      <h3 class="error-title">Không thể tải trực tiếp trang này</h3>
+      <p class="error-desc">ChatGPT chưa sẵn sàng trong sidebar. Bạn có thể mở tab ChatGPT để đăng nhập và dùng nội dung đã chuẩn bị.</p>
+      <textarea id="prompt-preview" class="prompt-preview" aria-label="Nội dung chuẩn bị cho ChatGPT" placeholder="Nội dung trang hoặc mẫu lệnh sẽ xuất hiện ở đây."></textarea>
+      <div class="error-actions">
+        <button id="btn-copy-prompt" class="btn-secondary">Sao chép nội dung</button>
+        <button id="btn-error-retry" class="btn-primary">🔄 Thử tải lại</button>
+        <button id="btn-error-open" class="btn-secondary">↗️ Mở tab ChatGPT / Đưa nội dung</button>
+      </div>
+    </div>
+
+    <iframe
+      id="chatgpt-frame"
+      src="about:blank"
+      allow="clipboard-read; clipboard-write; microphone"
+      referrerpolicy="no-referrer-when-downgrade"
+    ></iframe>
+  </main>
+
+  <!-- Help & Login Guide Modal -->
+  <div id="help-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>Hướng dẫn đăng nhập ChatGPT Sidebar</span>
+        </div>
+        <button id="btn-close-modal" class="tool-btn small">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="guide-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Mở trang đăng nhập trên tab mới</h4>
+            <p>Do chính sách bảo mật của Google và Apple, việc đăng nhập qua tài khoản Google/Apple cần thực hiện trên tab chính của trình duyệt.</p>
+            <button id="btn-modal-open-login" class="btn-inline-action">👉 Mở tab đăng nhập ChatGPT</button>
+          </div>
+        </div>
+
+        <div class="guide-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Đăng nhập tài khoản</h4>
+            <p>Chọn đăng nhập bằng <strong>Google, Microsoft, Apple</strong> hoặc <strong>Email & Mật khẩu</strong> của bạn như bình thường.</p>
+          </div>
+        </div>
+
+        <div class="guide-step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Quay lại Sidebar và Tải lại</h4>
+            <p>Sau khi đăng nhập thành công trên tab đó, quay lại thanh bên này và bấm nút <strong>Tải lại (🔄)</strong>. Nếu trình duyệt chặn phiên đăng nhập trong khung nhúng, bấm Mở tab để dùng ChatGPT trực tiếp.</p>
+          </div>
+        </div>
+
+        <div class="guide-note">
+          <span>💡 <strong>Mẹo:</strong> Bạn luôn có thể đọc trang, chuẩn bị lệnh và đưa nội dung sang tab ChatGPT ngay cả khi khung nhúng bị chặn.</span>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-modal-reload" class="btn-primary">🔄 Tải lại Sidebar ngay</button>
+        <button id="btn-modal-done" class="btn-secondary">Đã hiểu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

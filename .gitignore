@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Chrome extension generated metadata / cache
+_metadata/
+
+# R history & temp files
+.Rhistory
+.RData
+.RDataTmp
+
+# Editor & IDE configs
+.vscode/
+.idea/
+
+# Logs
+*.log
