@@ -723,3 +723,40 @@ button:disabled { opacity: .6; cursor: wait; }
 button:focus-visible, textarea:focus-visible { outline: 2px solid #5eead4; outline-offset: 2px; }
 @media (max-width: 360px) { .status-indicator { display: none; } .top-bar { padding: 8px; } .action-tools { gap: 2px; } .active-page-bar { padding: 6px 8px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* AI form filling workspace occupies the panel without navigating the source tab. */
+.form-fill-panel { position: fixed; inset: 48px 0 0; z-index: 60; overflow-y: auto; background: var(--bg-primary); padding: 16px; user-select: text; }
+.form-fill-panel.hidden, .form-fill-panel .hidden { display: none; }
+.form-heading { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+.form-heading h2 { font-size: 18px; margin-bottom: 6px; }
+.form-heading p, .form-muted { font-size: 12px; line-height: 1.6; color: var(--text-muted); overflow-wrap: anywhere; }
+.form-step { margin-bottom: 18px; }
+.form-modes { border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.form-modes legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+.form-mode { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; cursor: pointer; }
+.form-mode input { margin-top: 3px; accent-color: var(--accent-green); flex-shrink: 0; }
+.form-mode strong { display: block; font-size: 13px; line-height: 1.5; }
+.form-mode small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.form-sources { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; margin: 6px 0; }
+.form-sources a { color: #9acbbd; overflow-wrap: anywhere; }
+.form-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+.form-source, .form-instructions, .form-value { display: block; width: 100%; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-strong); border-radius: 6px; padding: 10px; font: inherit; font-size: 13px; line-height: 1.5; resize: vertical; }
+.form-source { min-height: 150px; }.form-instructions { min-height: 65px; }
+.form-fill-panel > .btn-primary { width: 100%; margin-top: 12px; }
+.form-status { font-size: 13px; line-height: 1.6; margin: 12px 0; overflow-wrap: anywhere; }
+.form-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+#form-review h3 { font-size: 15px; margin: 20px 0 6px; }
+.form-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; margin: 12px 0; }
+.form-check input { margin-top: 3px; accent-color: var(--accent-green); flex-shrink: 0; }
+.form-proposal { padding: 14px 0; border-bottom: 1px solid var(--border-subtle); }
+.form-proposal .form-check { font-size: 13px; font-weight: 600; margin-top: 0; overflow-wrap: anywhere; }
+.form-value { min-height: 65px; }
+.form-evidence { font-size: 11px; line-height: 1.6; color: #9acbbd; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0; }
+.form-warning { color: #fbbf24; }
+#btn-apply-form, #btn-undo-form { width: 100%; margin: 12px 0 0; }
+@media (max-width: 360px) { .form-fill-panel { padding: 12px; } .brand-info { gap: 3px; } .brand { gap: 4px; } .tool-btn { width: 28px; } }
+
+.form-ai-banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: rgba(16,163,127,.12); flex-shrink: 0; }
+.form-ai-banner.hidden { display: none; }
+.form-ai-banner span { flex: 1; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.form-ai-banner button { flex-shrink: 0; }

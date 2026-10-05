@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let busy = false;
   let loadTimer;
   let toastTimer;
+  let frameLoadId = 0;
   const requests = new Map();
   const handledPrompts = new Set();
   const status = document.querySelector('.status-text');
@@ -35,14 +36,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('error-overlay').classList.remove('hidden');
   }
 
-  function reloadFrame() {
+  async function reloadFrame() {
+    const loadId = ++frameLoadId;
     status.textContent = 'Đang tải';
     $('error-overlay').classList.add('hidden');
     $('progress-bar').classList.remove('hidden');
     $('reload-icon').classList.add('spinning');
     clearTimeout(loadTimer);
     loadTimer = setTimeout(showFallback, 15000);
-    frame.src = CHATGPT_URL;
+    try {
+      const response = await send({ type: 'PREPARE_CHATGPT_FRAME' });
+      if (loadId !== frameLoadId) return;
+      if (!response?.success) throw new Error(response?.error || 'Không chuẩn bị được sidebar.');
+      frame.src = window.sidebarFormConversationUrl || CHATGPT_URL;
+    } catch (error) {
+      if (loadId !== frameLoadId) return;
+      showFallback();
+      toast(error.message);
+    }
   }
 
   async function copy(text) {
@@ -71,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function deliver(text) {
+    if (window.sidebarFormAnalysisRunning) { toast('AI đang phân tích form. Chờ xong hoặc hủy trước khi đưa nội dung khác vào chat.'); return false; }
     lastPrompt = text;
     $('prompt-preview').value = text;
     const [copied, inserted] = await Promise.all([copy(text), inject(text)]);

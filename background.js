@@ -1,9 +1,30 @@
+importScripts('form-json.js', 'form-service.js');
 // Manifest V3 service worker. Durable prompts survive a cold side panel.
 const CHATGPT_URL = 'https://chatgpt.com/';
 const pendingKey = (windowId) => `pendingPrompt:${windowId}`;
+let frameRulesReady;
+
+function prepareChatGPTFrame() {
+  if (!frameRulesReady) {
+    frameRulesReady = (async () => {
+      const response = await fetch(chrome.runtime.getURL('rules/rules.json'));
+      if (!response.ok) throw new Error('Không tải được quy tắc sidebar.');
+      const rules = await response.json();
+      // Dynamic rules live in the browser profile, so unpacked source stays free
+      // of Chrome's reserved _metadata directory when indexing these rules.
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: rules.map(rule => rule.id),
+        addRules: rules
+      });
+      return { success: true };
+    })().catch(error => { frameRulesReady = null; throw error; });
+  }
+  return frameRulesReady;
+}
 
 async function setupSidePanel() {
   try {
+    await prepareChatGPTFrame();
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch (error) {
     console.error('[ChatGPT Sidebar]', error);
@@ -107,9 +128,15 @@ async function openChatGPT(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const types = ['OPEN_CHATGPT_TAB', 'GET_ACTIVE_TAB_INFO', 'GET_ACTIVE_PAGE_CONTENT', 'ACK_PENDING_PROMPT'];
+  const formTypes = ['IMPORT_FORM_JSON', 'SCAN_FORMS', 'START_FORM_AI', 'FORM_AI_RESULT', 'FORM_AI_PROGRESS', 'FORM_AI_LOCATION', 'FORM_AI_UNAVAILABLE', 'CANCEL_FORM_AI', 'RETRY_FORM_AI', 'APPLY_FORM_VALUES', 'UNDO_FORM_VALUES'];
+  if (formTypes.includes(message?.type)) {
+    handleFormMessage(message, sender).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+  const types = ['PREPARE_CHATGPT_FRAME', 'OPEN_CHATGPT_TAB', 'GET_ACTIVE_TAB_INFO', 'GET_ACTIVE_PAGE_CONTENT', 'ACK_PENDING_PROMPT'];
   if (!types.includes(message?.type)) return;
   (async () => {
+    if (message.type === 'PREPARE_CHATGPT_FRAME') return prepareChatGPTFrame();
     if (message.type === 'OPEN_CHATGPT_TAB') return openChatGPT(message);
     if (message.type === 'ACK_PENDING_PROMPT') {
       const key = pendingKey(message.windowId);

@@ -27,6 +27,8 @@
 
     <!-- Quick Action Toolbar -->
     <nav class="action-tools">
+      <button id="btn-form-fill" class="tool-btn" title="Điền form bằng AI" aria-label="Điền form bằng AI">▤</button>
+
       <button id="btn-prompts" class="tool-btn" title="Bộ công cụ Prompt nhanh">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
@@ -84,6 +86,8 @@
       </button>
     </div>
   </div>
+
+  <div id="form-ai-banner" class="form-ai-banner hidden"><span id="form-ai-banner-status" role="status" aria-live="polite"></span><button id="btn-return-form" class="banner-btn primary">Xem điền form</button></div>
 
   <!-- Login Assistant Banner -->
   <div id="login-banner" class="login-banner">
@@ -187,6 +191,33 @@
     ></iframe>
   </main>
 
+  <section id="form-fill-panel" class="form-fill-panel hidden" aria-label="Điền form bằng AI">
+    <div class="form-heading"><div><h2>Điền form bằng AI</h2><p>Nhập thông tin và hướng dẫn để AI điền biểu mẫu trên trang.</p></div><button id="btn-close-form" class="tool-btn" aria-label="Đóng điền form">✕</button></div>
+    <div class="form-step"><button id="btn-scan-forms" class="btn-secondary" disabled>1. Quét ô nhập trên trang</button><p id="form-target" class="form-muted">Mở trang có form cần điền, rồi bấm quét.</p></div>
+    <fieldset class="form-modes"><legend>Chế độ điền</legend>
+      <label class="form-mode"><input type="radio" name="form-mode" id="form-mode-exact" value="exact" checked><span><strong>Điền đúng dữ liệu nguồn</strong><small>Chỉ lấy dữ kiện bạn nhập; thiếu thì để trống.</small></span></label>
+      <label class="form-mode"><input type="radio" name="form-mode" id="form-mode-complete" value="complete"><span><strong>AI tự hoàn thiện</strong><small>Suy luận, tìm hiểu và viết nội dung mẫu cho phần còn thiếu.</small></span></label>
+    </fieldset>
+    <label class="form-label" for="form-source">Nội dung</label>
+    <textarea id="form-source" class="form-source" maxlength="50000" placeholder="Nhập hoặc dán thông tin bạn muốn dùng để điền form…" aria-describedby="form-mode-hint"></textarea>
+    <p id="form-mode-hint" class="form-muted">Chỉ dùng dữ kiện bạn nhập. Các phần thiếu thông tin sẽ để trống.</p>
+    <label class="form-label" for="form-instructions">Hướng dẫn thêm (tuỳ chọn)</label>
+    <textarea id="form-instructions" class="form-instructions" maxlength="4000" placeholder="Ví dụ: Viết ngắn gọn, dùng giọng chuyên nghiệp, phần mô tả trình bày thành các ý."></textarea>
+    <p class="form-muted">Khi bấm phân tích, nội dung và nhãn các ô sẽ được gửi tới ChatGPT ngay trong sidebar này.</p>
+    <label class="form-check"><input id="form-auto-fill" type="checkbox" checked> Tự điền form khi AI trả kết quả</label>
+    <label class="form-check"><input id="form-overwrite" type="checkbox"> Cho phép ghi đè ô đã có nội dung</label>
+    <button id="btn-analyze-form" class="btn-primary" disabled>2. Phân tích trong sidebar</button>
+    <p id="form-status" class="form-status" role="status" aria-live="polite">Chưa quét form.</p>
+    <div class="form-actions"><button id="btn-open-form-ai" class="btn-secondary hidden">Xem AI trong sidebar</button><button id="btn-read-form-ai" class="btn-secondary hidden">Đọc lại kết quả AI</button><button id="btn-retry-form-ai" class="btn-secondary hidden">Thử lại AI</button><button id="btn-cancel-form-ai" class="btn-secondary hidden">Hủy phân tích</button></div>
+    <div id="form-review" class="hidden">
+      <h3>Kết quả điền form</h3><p class="form-muted">Xem giá trị và căn cứ đã nhận từ AI. Bạn có thể chỉnh rồi điền lại; bật ghi đè nếu muốn thay nội dung đã có.</p>
+      <div id="form-proposals" class="form-proposals"></div>
+      <button id="btn-apply-form" class="btn-primary">Điền lại các ô đã chọn</button>
+      <button id="btn-undo-form" class="btn-secondary" disabled>Hoàn tác lần điền vừa rồi</button>
+      <p class="form-muted">Extension chỉ điền ô nhập. Bạn tự kiểm tra và gửi biểu mẫu trên trang.</p>
+    </div>
+  </section>
+
   <!-- Help & Login Guide Modal -->
   <div id="help-modal" class="modal-backdrop hidden">
     <div class="modal-card">
@@ -239,5 +270,6 @@
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="sidepanel.js"></script>
+  <script src="form-fill.js"></script>
 </body>
 </html>

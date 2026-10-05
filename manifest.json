@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Sidebar - Trợ lý AI",
-  "version": "1.4.0",
-  "description": "Thanh bên ChatGPT chuẩn Chrome/Brave Side Panel, mở tức thì bằng phím tắt hoặc icon trên thanh công cụ.",
+  "version": "1.6.4",
+  "description": "ChatGPT Sidebar: đọc trang, chuẩn bị lệnh và điền form bằng AI từ nội dung bạn cung cấp.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -31,6 +31,7 @@
         "https://chat.openai.com/*"
       ],
       "js": [
+        "form-json.js",
         "content/chatgpt-inject.js"
       ],
       "run_at": "document_idle",
@@ -49,15 +50,6 @@
   "host_permissions": [
     "<all_urls>"
   ],
-  "declarative_net_request": {
-    "rule_resources": [
-      {
-        "id": "ruleset_1",
-        "enabled": true,
-        "path": "rules/rules.json"
-      }
-    ]
-  },
   "commands": {
     "_execute_action": {
       "suggested_key": {
