@@ -78,7 +78,7 @@ function extractPageContent() {
   const selectedText = window.getSelection()?.toString().trim().slice(0, 12000) || '';
   if (!root) return { title: document.title, url: location.href, content: '', selectedText };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const excluded = 'script, style, noscript, nav, footer, iframe, aside, [hidden], [aria-hidden="true"]';
+  const excluded = 'script, style, noscript, nav, footer, iframe, aside, [hidden], [aria-hidden="true"], dialog:not([open]), [role="dialog"], [role="alertdialog"], .modal, .modal-dialog, .popup, .swal2-container, .toast';
   const visibility = new WeakMap();
   const chunks = [];
   let length = 0;
@@ -89,7 +89,7 @@ function extractPageContent() {
     if (!text || !parent || parent.closest(excluded)) continue;
     if (!visibility.has(parent)) {
       const style = getComputedStyle(parent);
-      visibility.set(parent, style.display !== 'none' && style.visibility !== 'hidden' && parent.getClientRects().length > 0);
+      visibility.set(parent, style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && parent.getClientRects().length > 0);
     }
     if (!visibility.get(parent)) continue;
     chunks.push(text);

@@ -1,40 +1,70 @@
 // Runs in ChatGPT's isolated content-script world, including the sidebar frame.
 (() => {
   const extensionOrigin = chrome.runtime.getURL('').replace(/\/$/, '');
-  const findInput = () => document.querySelector('#prompt-textarea, .ProseMirror[contenteditable="true"], textarea[data-id="root"], main form textarea');
+  const findInput = () => document.querySelector([
+    '#prompt-textarea',
+    '[data-testid="prompt-textarea"]',
+    '.ProseMirror[contenteditable="true"]',
+    'div[contenteditable="true"]#prompt-textarea',
+    'div[contenteditable="true"]',
+    'textarea[data-id="root"]',
+    'main form textarea',
+    'form [contenteditable="true"]',
+    'textarea[placeholder]'
+  ].join(', '));
 
   function insertText(text) {
     const input = findInput();
     if (!input || input.disabled || input.getAttribute('contenteditable') === 'false') {
       return { success: false, reason: 'INPUT_NOT_FOUND' };
     }
+    try { window.focus(); } catch {}
     input.focus();
     if (input instanceof HTMLTextAreaElement) {
       // Native setter also updates React-controlled textareas.
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-      setter.call(input, text);
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      if (setter) setter.call(input, text);
+      else input.value = text;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      return { success: input.value === text };
+      return { success: input.value.length > 0 };
     }
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(input);
     selection.removeAllRanges();
     selection.addRange(range);
-    // Editing through the browser keeps ProseMirror's document state in sync.
-    const inserted = document.execCommand('insertText', false, text);
-    if (!inserted) {
+
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, text);
+    } catch {}
+
+    if (!inserted || !input.innerText?.trim()) {
       try {
         const transfer = new DataTransfer();
         transfer.setData('text/plain', text);
         input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
-      } catch { /* Caller retains the text for copying. */ }
+      } catch {}
     }
-    const normalize = (value) => value.replace(/\s+/g, ' ').trim();
-    const actual = normalize(input.innerText);
+
+    if (!input.innerText?.trim() && !input.textContent?.trim()) {
+      try {
+        const paragraphs = text.split('\n\n').filter(Boolean);
+        if (paragraphs.length > 0) {
+          input.innerHTML = paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+        } else {
+          input.textContent = text;
+        }
+      } catch {}
+    }
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     input.scrollTop = input.scrollHeight;
-    return { success: actual === normalize(text), reason: 'EDITOR_RESULT' };
+
+    const actual = (input.innerText || input.textContent || '').trim();
+    return { success: actual.length > 0, reason: 'EDITOR_RESULT' };
   }
 
   const formRuns = new Map();

@@ -43,7 +43,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('progress-bar').classList.remove('hidden');
     $('reload-icon').classList.add('spinning');
     clearTimeout(loadTimer);
-    loadTimer = setTimeout(showFallback, 15000);
+    loadTimer = setTimeout(() => {
+      stopLoading();
+      if (status.textContent === 'Đang tải') status.textContent = 'ChatGPT';
+    }, 25000);
     try {
       const response = await send({ type: 'PREPARE_CHATGPT_FRAME' });
       if (loadId !== frameLoadId) return;
@@ -51,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       frame.src = window.sidebarFormConversationUrl || CHATGPT_URL;
     } catch (error) {
       if (loadId !== frameLoadId) return;
-      showFallback();
+      stopLoading();
       toast(error.message);
     }
   }
@@ -68,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function inject(text) {
     return new Promise((resolve) => {
       const id = crypto.randomUUID();
-      const timer = setTimeout(() => { requests.delete(id); resolve(false); }, 1800);
+      const timer = setTimeout(() => { requests.delete(id); resolve(false); }, 3500);
       requests.set(id, (success) => { clearTimeout(timer); requests.delete(id); resolve(success); });
       frame.contentWindow.postMessage({ type: 'SIDEBAR_INJECT_PAGE_CONTEXT', id, text }, 'https://chatgpt.com');
     });
@@ -91,8 +94,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       toast('Đã điền vào ô chat. Bạn có thể sửa nội dung rồi bấm gửi.');
       await acknowledgePrompt(text);
     } else {
-      showFallback();
-      toast(copied ? 'Đã sao chép. Mở tab ChatGPT để điền hoặc dán nội dung.' : 'Nội dung đã giữ bên dưới. Bấm đưa vào tab ChatGPT hoặc sao chép.');
+      toast(copied ? 'Đã sao chép nội dung! Bạn chỉ cần nhấn Cmd+V (hoặc Ctrl+V) vào ô chat để dán.' : 'Vui lòng sao chép nội dung rồi dán vào ô chat.');
     }
     return inserted;
   }
@@ -151,13 +153,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       const response = await send({ type: 'GET_ACTIVE_PAGE_CONTENT' });
       if (!response?.success) throw new Error(response?.error || 'Không đọc được trang.');
       const { title, url, selectedText, content, isTruncated } = response.data;
-      const prompt = [
-        summarize ? 'Hãy tóm tắt ngắn gọn các ý chính của trang web sau bằng Tiếng Việt:' : 'Hãy phân tích các ý chính và thông tin hữu ích của trang web sau:',
-        `Tiêu đề: ${title}`, `URL: ${url}`,
-        selectedText ? `Đoạn đang chọn:\n${selectedText}` : '',
-        `Nội dung trang:\n${content || selectedText}`,
-        isTruncated ? '(Nội dung được giới hạn ở 12.000 ký tự đầu.)' : ''
-      ].filter(Boolean).join('\n\n');
+      const prompt = selectedText
+        ? [
+            summarize ? 'Hãy tóm tắt và giải thích nội dung được chọn sau bằng Tiếng Việt:' : 'Hãy trả lời và giải thích chi tiết nội dung sau:',
+            `Nội dung:\n${selectedText}`,
+            `Nguồn: ${title} (${url})`
+          ].join('\n\n')
+        : [
+            summarize ? 'Hãy tóm tắt ngắn gọn các ý chính của trang web sau bằng Tiếng Việt:' : 'Hãy phân tích các ý chính và thông tin hữu ích của trang web sau:',
+            `Tiêu đề: ${title}`, `URL: ${url}`,
+            `Nội dung trang:\n${content || selectedText}`,
+            isTruncated ? '(Nội dung được giới hạn ở 12.000 ký tự đầu.)' : ''
+          ].filter(Boolean).join('\n\n');
       await deliver(prompt);
       $('prompts-drawer').classList.add('hidden');
     } catch (error) { toast(error.message); }
@@ -180,6 +187,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btn-summarize-page').addEventListener('click', () => insertPage(true));
   for (const id of ['btn-reload', 'btn-home', 'btn-banner-reload', 'btn-error-retry']) $(id).addEventListener('click', reloadFrame);
   for (const id of ['btn-open-tab', 'btn-banner-login', 'btn-modal-open-login', 'btn-error-open']) $(id).addEventListener('click', openTab);
+  $('btn-close-error')?.addEventListener('click', () => {
+    $('error-overlay').classList.add('hidden');
+    if (status.textContent === 'Mở tab') status.textContent = 'ChatGPT';
+  });
   $('btn-copy-prompt').addEventListener('click', async () => {
     const text = $('prompt-preview').value;
     if (!text) return toast('Hãy chọn nội dung trang hoặc một mẫu lệnh trước.');
@@ -197,7 +208,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   for (const id of ['btn-close-modal', 'btn-modal-done']) $(id).addEventListener('click', () => $('help-modal').classList.add('hidden'));
   $('btn-modal-reload').addEventListener('click', () => { $('help-modal').classList.add('hidden'); reloadFrame(); });
   $('help-modal').addEventListener('click', (event) => { if (event.target === $('help-modal')) $('help-modal').classList.add('hidden'); });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') $('help-modal').classList.add('hidden'); });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      $('help-modal').classList.add('hidden');
+      $('error-overlay').classList.add('hidden');
+    }
+  });
   document.querySelectorAll('.quick-template').forEach((button) => {
     button.addEventListener('click', () => {
       $('prompts-drawer').classList.add('hidden');
