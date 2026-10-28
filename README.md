@@ -6,10 +6,26 @@ Tiện ích Chrome / Brave mở ChatGPT trong thanh bên, đọc trang đang xem
 
 1. Mở `chrome://extensions` (Brave: `brave://extensions`).
 2. Bật **Chế độ nhà phát triển**.
-3. Chọn **Tải tiện ích đã giải nén** và chọn thư mục này. Nếu đã cài, bấm **Tải lại** trên thẻ tiện ích, sau đó đóng và mở lại sidebar.
+3. Chọn **Tải tiện ích đã giải nén** và chọn thư mục này. Nếu đã cài, bấm **Tải lại** trên thẻ tiện ích, tải lại tab Vinmec và tab ChatGPT nền nếu đang mở, sau đó đóng và mở lại sidebar.
 4. Bấm biểu tượng tiện ích hoặc **Cmd+Shift+Y** / **Ctrl+Shift+Y**.
 
 Yêu cầu Chrome 116 trở lên hoặc Brave có hỗ trợ Side Panel API. Nếu phím tắt trùng với tiện ích khác, đổi tại `chrome://extensions/shortcuts`.
+
+## Đáp án tự động trên Vinmec (1.7.1)
+
+Bản này phát triển từ nền 1.7.0, giữ giao diện sáng và chức năng sidebar. Phần đáp án chạy độc lập với sidebar.
+
+1. Mở đề thử trên `https://elearning.vinmec.com/`, nhấn **Shift + Option + Q** trên Mac (**Alt + Shift + Q** trên Windows/Linux), hoặc bật **Cài đặt → Đáp án tự động · Vinmec**. Phím tắt không mở sidebar. Nếu chưa được gán, mở `brave://extensions/shortcuts` và gán cho **Bật/tắt đáp án tự động trên Vinmec**.
+2. Extension đọc câu hỏi và lựa chọn đã hiển thị trên trang, gán A/B/C theo thứ tự, rồi mở **một tab ChatGPT riêng ở nền**, sử dụng đăng nhập hiện tại. Mỗi đợt tối đa 5 câu, mục tiêu dưới 16.000 ký tự; câu riêng dài hơn ngưỡng được gửi riêng, không cắt nội dung. Chờ đợt trước xong rồi mới gửi đợt tiếp theo.
+3. Đáp án cập nhật dần trong popup nền bán trong suốt **ở giữa cạnh dưới trang**, ví dụ `1A, 2B, 3B-D-E`. Câu thiếu dữ kiện hoặc có hình/âm thanh chưa đọc được hiện `4?`. Extension chỉ đọc văn bản và lựa chọn, không chọn hay nộp đáp án. Thứ tự và số câu được giữ nguyên; kết quả AI vẫn cần được đối chiếu.
+4. Bấm **Ẩn** để thu popup thành nút **Đáp án**, bấm lại để mở. Bấm **✕ Đóng sidebar** hoặc nút X của trình duyệt để đóng hẳn sidebar; tab nền và popup vẫn hoạt động. Nút đóng riêng dùng Side Panel API từ Chrome 141; trình duyệt cũ dùng X sẵn có. Mở lại sidebar bằng biểu tượng tiện ích hoặc Cmd+Shift+Y.
+5. Nhấn lại phím tắt hoặc bấm **Dừng** để ngừng các lượt tiếp theo và ẩn popup. Bật lại sẽ đọc lại lượt đã gửi đang chờ trước khi gửi tiếp. Tab ChatGPT được giữ lại để bạn xem cuộc chat.
+
+Chế độ gắn với tab Vinmec lúc bật và theo dõi các câu mới khi đổi trang trong tab đó. Câu đã xử lý được ghi nhớ theo số câu, nội dung và thứ tự lựa chọn; đếm ngược, chọn đáp án và tải lại trang không gây gửi lặp. Khi chế độ này bật, phân tích trang thông thường tạm dừng trên tab nguồn.
+
+Nếu ChatGPT cần đăng nhập, đang có bản nháp/đang trả lời, trả sai định dạng hoặc tab nền bị đóng, popup báo trạng thái. **Mở ChatGPT** để xử lý, rồi bấm **Đọc lại ChatGPT**; thao tác đọc lại không gửi prompt. Sau khi đã đọc lại mà chưa nhận được kết quả, **Thử lại câu thiếu** cho phép gửi lại theo yêu cầu của bạn. Không tự gửi lại lượt chưa rõ đã gửi hay chưa.
+
+Trạng thái, câu hỏi, hàng đợi và đáp án dùng `chrome.storage.session` để tiếp tục sau khi worker ngủ hoặc sidebar đóng; phiên không tự bật lại sau khi khởi động lại trình duyệt. Nội dung gửi vẫn nằm trong tài khoản ChatGPT. Quyền `alarms` kiểm tra phục hồi kết nối mỗi phút; trình duyệt và tab ChatGPT cần tiếp tục chạy.
 
 Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache `_metadata` trong thư mục extension. Nếu cập nhật từ bản cũ có thư mục `_metadata`, chuyển thư mục đó ra ngoài extension rồi bấm **Thử lại** khi tải tiện ích.
 
@@ -40,6 +56,7 @@ Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật
 node --check background.js
 node --check content/chatgpt-inject.js
 node --check sidepanel/sidepanel.js
+node --test tests/quiz.test.cjs
 ```
 
 Không cần cài dependencies hay chạy build. Mã JavaScript và tài nguyên được tải trực tiếp bởi trình duyệt.

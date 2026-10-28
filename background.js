@@ -1,4 +1,4 @@
-importScripts('form-json.js', 'form-service.js');
+importScripts('form-json.js', 'form-service.js', 'quiz-common.js', 'quiz-service.js');
 // Manifest V3 service worker. Durable prompts survive a cold side panel.
 const CHATGPT_URL = 'https://chatgpt.com/';
 const pendingKey = (windowId) => `pendingPrompt:${windowId}`;
@@ -43,6 +43,18 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 chrome.runtime.onStartup.addListener(setupSidePanel);
+
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== 'toggle-quiz-mode' || !Number.isInteger(tab?.windowId)) return;
+  quizToggle(tab.windowId, undefined, tab).then(() => {
+    chrome.action.setBadgeText({ text: '', tabId: tab.id });
+    chrome.action.setTitle({ title: 'Mở ChatGPT Sidebar (Cmd+Shift+Y)', tabId: tab.id });
+  }).catch(error => {
+    chrome.action.setBadgeText({ text: '!', tabId: tab.id });
+    chrome.action.setTitle({ title: error.message, tabId: tab.id });
+    console.error('[Đáp án tự động]', error);
+  });
+});
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (tab?.windowId == null) return;
@@ -128,6 +140,15 @@ async function openChatGPT(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type?.startsWith('QUIZ_')) {
+    handleQuizMessage(message, sender).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === 'CLOSE_SIDEBAR' && !sender.tab && sender.url?.startsWith(chrome.runtime.getURL(''))) {
+    if (!chrome.sidePanel.close) { sendResponse({ success: false, error: 'Dùng nút X ở thanh tiêu đề của trình duyệt để đóng sidebar. Phân tích đáp án vẫn tiếp tục.' }); return; }
+    chrome.sidePanel.close({ windowId: message.windowId }).then(() => sendResponse({ success: true })).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
   const formTypes = ['IMPORT_FORM_JSON', 'SCAN_FORMS', 'START_FORM_AI', 'FORM_AI_RESULT', 'FORM_AI_PROGRESS', 'FORM_AI_LOCATION', 'FORM_AI_UNAVAILABLE', 'CANCEL_FORM_AI', 'RETRY_FORM_AI', 'APPLY_FORM_VALUES', 'UNDO_FORM_VALUES'];
   if (formTypes.includes(message?.type)) {
     handleFormMessage(message, sender).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));

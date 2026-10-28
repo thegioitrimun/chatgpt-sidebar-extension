@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let frameLoadId = 0;
   let chatReady = false;
   let autoAnalyzeEnabled = false;
+  let quizMode = null;
   let activeTab = null;
   let tabInfoSequence = 0;
   let pageRevision = 0;
@@ -51,13 +52,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     cancelAutomaticRequest();
   }
 
-  const currentAutomaticJob = job => autoAnalyzeEnabled && automaticJob === job && job.revision === pageRevision;
+  const currentAutomaticJob = job => autoAnalyzeEnabled && !(quizMode?.enabled && quizMode.tabId === job.tabId) && automaticJob === job && job.revision === pageRevision;
 
   function scheduleAutomaticAnalysis(delay = 800) {
     if (automaticTimer && delay > 0) return;
     clearTimeout(automaticTimer);
     automaticTimer = null;
     if (!autoAnalyzeEnabled || !activeTab) return;
+    if (quizMode?.enabled && quizMode.tabId === activeTab.id) {
+      autoStatus('Đáp án tự động đang xử lý tab này ở nền.');
+      return;
+    }
     let url;
     try { url = new URL(activeTab.url); } catch { /* Browser pages have no readable URL. */ }
     if (!url || !/^https?:$/.test(url.protocol) || ['chatgpt.com', 'chat.openai.com', 'auth.openai.com', 'chromewebstore.google.com'].includes(url.hostname) || (url.hostname === 'chrome.google.com' && url.pathname.startsWith('/webstore'))) {
@@ -363,6 +368,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btn-analyze-page').addEventListener('click', () => insertPage(false, true));
   $('btn-summarize-page').addEventListener('click', () => insertPage(true));
   $('btn-settings').addEventListener('click', () => $('settings-modal').showModal());
+  $('btn-close-sidebar').addEventListener('click', async () => {
+    const result = await send({ type: 'CLOSE_SIDEBAR' }).catch(error => ({ error: error.message }));
+    if (!result?.success) toast(result?.error || 'Dùng nút X ở thanh tiêu đề trình duyệt để đóng sidebar.');
+  });
+  function applyQuizState(next) {
+    quizMode = next;
+    $('setting-quiz-mode').checked = next?.enabled === true;
+    invalidateAutomaticPage();
+    scheduleAutomaticAnalysis();
+  }
+  $('setting-quiz-mode').addEventListener('change', async () => {
+    const input = $('setting-quiz-mode'); input.disabled = true;
+    try {
+      const result = await send({ type: 'QUIZ_SET_MODE', enabled: input.checked });
+      if (!result?.success) throw new Error(result?.error || 'Chưa bật được chế độ đáp án.');
+      applyQuizState(result.state);
+    } catch (error) { input.checked = quizMode?.enabled === true; toast(error.message); }
+    finally { input.disabled = false; }
+  });
   for (const id of ['btn-close-settings', 'btn-done-settings']) $(id).addEventListener('click', () => $('settings-modal').close());
   $('setting-auto-analyze').addEventListener('change', async () => {
     const previous = autoAnalyzeEnabled;
@@ -426,6 +450,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (info.title || info.url || info.status) updateActiveTabInfo();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'session' && changes[`quizSession:${windowId}`]) {
+        const next = changes[`quizSession:${windowId}`].newValue;
+        if (quizMode?.enabled !== next?.enabled || quizMode?.tabId !== next?.tabId) applyQuizState(next);
+      }
       if (area !== 'local') return;
       receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));
       if (changes.autoAnalyzeOnNavigation && (changes.autoAnalyzeOnNavigation.newValue === true) !== autoAnalyzeEnabled) applyAutomaticSetting(changes.autoAnalyzeOnNavigation.newValue);
@@ -435,6 +463,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.storage.session.get(`lastAutomaticPage:${windowId}`)
     ]);
     lastAutomaticPage = session[`lastAutomaticPage:${windowId}`] || '';
+    const quiz = await send({ type: 'QUIZ_GET_STATE' });
+    applyQuizState(quiz?.state);
+    $('quiz-shortcut').textContent = quiz?.shortcut ? `${quiz.shortcut}: bật/tắt trên tab đề Vinmec. Đóng sidebar vẫn tiếp tục.` : 'Chưa gán phím tắt. Mở brave://extensions/shortcuts và gán Shift + Option + Q cho “Bật/tắt đáp án tự động trên Vinmec”.';
     applyAutomaticSetting(stored.autoAnalyzeOnNavigation);
     if (stored.hideLoginBanner) $('login-banner').classList.add('hidden');
     updateActiveTabInfo();

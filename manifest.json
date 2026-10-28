@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Sidebar - Trợ lý AI",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "ChatGPT Sidebar: đọc trang, chuẩn bị lệnh và điền form bằng AI từ nội dung bạn cung cấp.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -32,8 +32,16 @@
       ],
       "js": [
         "form-json.js",
+        "quiz-common.js",
+        "content/quiz-chat.js",
         "content/chatgpt-inject.js"
       ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://elearning.vinmec.com/*"],
+      "js": ["content/quiz-extract.js", "content/quiz-page.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
@@ -45,12 +53,17 @@
     "tabs",
     "scripting",
     "contextMenus",
-    "clipboardWrite"
+    "clipboardWrite",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "commands": {
+    "toggle-quiz-mode": {
+      "suggested_key": { "default": "Alt+Shift+Q", "mac": "Alt+Shift+Q" },
+      "description": "Bật/tắt đáp án tự động trên Vinmec"
+    },
     "_execute_action": {
       "suggested_key": {
         "default": "Ctrl+Shift+Y",

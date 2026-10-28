@@ -834,3 +834,4 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-g
 .switch input:disabled { cursor: wait; }
 .switch input:disabled + .switch-track { opacity: .6; }
 @media (max-width: 480px) { .status-indicator { display: none; } .top-bar { padding-inline: 8px; } .action-tools { gap: 2px; } .tool-btn { width: 28px; flex-shrink: 0; } }
+@media (max-width: 360px) { .brand-logo { display: none; } .brand-title { font-size: 12px; } .top-bar { gap: 4px; } .action-tools { flex: 1; justify-content: flex-end; } .tool-btn { width: 26px; } }
