@@ -1,6 +1,7 @@
 // The worker owns the queue; neither the side panel nor an open UI is required.
 const quizKey = windowId => `quizSession:${windowId}`;
 const quizQueues = new Map();
+const quizChatBridgeVersion = 2;
 const quizHost = url => { try { return new URL(url).origin === 'https://elearning.vinmec.com'; } catch { return false; } };
 const chatHost = url => { try { return ['https://chatgpt.com', 'https://chat.openai.com'].includes(new URL(url).origin); } catch { return false; } };
 const quizGet = async windowId => (await chrome.storage.session.get(quizKey(windowId)))[quizKey(windowId)];
@@ -19,7 +20,7 @@ function quizView(mode) {
   return {
     enabled: mode.enabled, runId: mode.runId, tabId: mode.tabId, pageUrl: mode.sourceUrl, collapsed: mode.collapsed,
     answers: answers.map(item => `${item.number}${item.answer}`).join(', '),
-    status: mode.error || (mode.job ? `Đã có ${count}/${mode.questions.length} • Đang xử lý ${mode.job.questions.map(question => question.number).join(', ')}` : mode.questions.length ? `Đã có ${count}/${mode.questions.length} đáp án • Đang theo dõi câu mới` : 'Đang chờ câu hỏi…'),
+    status: mode.error || mode.waiting || (mode.job ? `Đã có ${count}/${mode.questions.length} • Đang xử lý ${mode.job.questions.map(question => question.number).join(', ')}` : mode.questions.length ? `Đã có ${count}/${mode.questions.length} đáp án • Đang theo dõi câu mới` : 'Đang chờ câu hỏi…'),
     error: !!mode.error, retryLabel: mode.job?.mayHaveSent && !mode.job.readAttempted ? 'Đọc lại ChatGPT' : 'Thử lại câu thiếu'
   };
 }
@@ -60,6 +61,7 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
     mode.runId = crypto.randomUUID();
     mode.collapsed = false;
     mode.error = '';
+    mode.waiting = '';
     mode.sourceUrl = tab.url;
     if (mode.job) { mode.job.runId = mode.runId; mode.job.dispatched = false; }
     await quizSave(mode);
@@ -76,12 +78,21 @@ async function quizEnsureChat(mode) {
     const tab = await chrome.tabs.get(mode.chatTabId).catch(() => null);
     if (tab && chatHost(tab.url)) {
       await chrome.tabs.update(tab.id, { autoDiscardable: false });
+      if (mode.chatBridgeVersion !== quizChatBridgeVersion) {
+        // Reload only our own tab once after a reader upgrade. An already open
+        // ChatGPT tab otherwise keeps the previous content script indefinitely.
+        mode.chatBridgeVersion = quizChatBridgeVersion;
+        await quizSave(mode);
+        await chrome.tabs.reload(tab.id);
+        return { ...tab, status: 'loading' };
+      }
       return tab;
     }
     if (tab) throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
   }
   const tab = await chrome.tabs.create({ windowId: mode.windowId, url: chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/', active: false });
   mode.chatTabId = tab.id;
+  mode.chatBridgeVersion = quizChatBridgeVersion;
   await chrome.tabs.update(tab.id, { autoDiscardable: false });
   await quizSave(mode);
   return tab;
@@ -98,7 +109,12 @@ async function quizDispatch(mode, reading = false) {
       jobId: job.id, token: job.token, runId: mode.runId, prompt: job.prompt,
       questions: job.questions, createdAt: job.createdAt
     }, { frameId: 0 }).catch(() => null);
-    if (result?.success) { job.dispatched = true; await quizSave(mode); }
+    if (result?.success) { job.dispatched = true; mode.waiting = ''; await quizSave(mode); }
+    else if (result?.waiting) {
+      mode.waiting = result.draft ? 'Đang chờ ô ChatGPT trống; giữ nguyên bản nháp của bạn.' : 'Đang chờ ChatGPT sẵn sàng; sẽ tự tiếp tục…';
+      job.dispatched = false;
+      await quizSave(mode);
+    }
     else if (result && !result.ready) {
       mode.error = 'ChatGPT chưa sẵn sàng. Mở tab ChatGPT nền để đăng nhập, sau đó bấm thử lại.';
       await quizSave(mode);
@@ -191,7 +207,9 @@ async function quizWake(windowId, tabId) {
   return quizSerial(windowId, async () => {
     const mode = await quizGet(windowId);
     if (!mode?.enabled || (tabId && mode.chatTabId !== tabId)) return;
-    if (tabId && mode.error && !mode.job?.mayHaveSent) mode.error = '';
+    // A freshly ready bridge can recover an answer already sent, including
+    // sessions paused by an older renderer. READ never submits another prompt.
+    if (mode.error && (tabId || mode.job?.mayHaveSent)) mode.error = '';
     if (mode.error) return;
     if (mode.job) await quizDispatch(mode, mode.job.mayHaveSent);
     else await quizPump(mode);

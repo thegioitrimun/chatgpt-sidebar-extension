@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ChatGPT reply reader regression tests</title>
+<h1>ChatGPT reply reader regression tests</h1>
+<p id="result">Running…</p>
+<script src="../content/quiz-chat-dom.js"></script>
+<script>
+  // Minimal, real renderer attributes observed on ChatGPT on 2026-10-29.
+  // Keep user/assistant pairs in DOM order; never select a global latest answer.
+  const cases = [
+    {
+      name: 'DIL renderer without legacy role, turn or markdown classes', job: 'modern',
+      html: '<div data-user-message-bubble="true">QUIZ_JOB:modern\nQuestions…</div><div data-chatgpt-selection-message-id="reply"><div data-markdown-text-style="assistant-message"><div data-dil-message-id="reply"><p>1D, 2B, 3D</p></div></div><button>Copy</button></div>',
+      expected: { found: true, text: '1D, 2B, 3D' }
+    },
+    {
+      name: 'Older role-based renderer', job: 'legacy',
+      html: '<div data-message-author-role="user">QUIZ_JOB:legacy</div><div data-message-author-role="assistant"><div class="markdown">7B-D-E</div><button>Copy</button></div>',
+      expected: { found: true, text: '7B-D-E' }
+    },
+    {
+      name: 'Nested old/new markers are read once', job: 'mixed',
+      html: '<div data-message-author-role="user"><div data-user-message-bubble="true">QUIZ_JOB:mixed</div></div><div data-message-author-role="assistant"><div data-markdown-text-style="assistant-message"><div class="markdown">19?</div></div></div>',
+      expected: { found: true, text: '19?' }
+    },
+    {
+      name: 'Assistant quoting a marker cannot impersonate our user prompt', job: 'quoted',
+      html: '<div data-markdown-text-style="assistant-message">QUIZ_JOB:quoted</div><div data-markdown-text-style="assistant-message">1A</div>',
+      expected: { found: false }
+    },
+    {
+      name: 'A later user message prevents borrowing its assistant response', job: 'older',
+      html: '<div data-user-message-bubble="true">QUIZ_JOB:older</div><div data-markdown-text-style="assistant-message">1D</div><div data-user-message-bubble="true">A different request</div><div data-markdown-text-style="assistant-message">1A</div>',
+      expected: { found: true, changed: true }
+    },
+    {
+      name: 'A prompt still awaiting its reply is pending', job: 'pending',
+      html: '<div data-user-message-bubble="true">QUIZ_JOB:pending</div>',
+      expected: { found: true, text: '' }
+    },
+    {
+      name: 'An unrelated completed batch is ignored', job: 'current',
+      html: '<div data-user-message-bubble="true">QUIZ_JOB:unrelated</div><div data-markdown-text-style="assistant-message">1A</div><div data-user-message-bubble="true">QUIZ_JOB:current</div><div data-markdown-text-style="assistant-message">1D</div>',
+      expected: { found: true, text: '1D' }
+    },
+    {
+      name: 'Collapsed prompt does not need Show more to be clicked', job: 'collapsed',
+      html: '<div><div data-user-message-bubble="true">QUIZ_JOB:collapsed\nQuestions…</div><button>Show more</button></div><div data-markdown-text-style="assistant-message">1B</div>',
+      expected: { found: true, text: '1B' }
+    }
+  ];
+  let passed = 0;
+  for (const item of cases) {
+    const fixture = document.createElement('section'); fixture.innerHTML = item.html; document.body.append(fixture);
+    const actual = sidebarQuizChatDOM.readReply(fixture, item.job);
+    fixture.remove();
+    if (JSON.stringify(actual) !== JSON.stringify(item.expected)) throw Error(`${item.name}: ${JSON.stringify(actual)}`);
+    passed++; console.log('PASS', item.name);
+  }
+  document.getElementById('result').textContent = `${passed} passed`;
+</script>

@@ -27,6 +27,8 @@ Nếu ChatGPT cần đăng nhập, đang có bản nháp/đang trả lời, tr�
 
 Trạng thái, câu hỏi, hàng đợi và đáp án dùng `chrome.storage.session` để tiếp tục sau khi worker ngủ hoặc sidebar đóng; phiên không tự bật lại sau khi khởi động lại trình duyệt. Nội dung gửi vẫn nằm trong tài khoản ChatGPT. Quyền `alarms` kiểm tra phục hồi kết nối mỗi phút; trình duyệt và tab ChatGPT cần tiếp tục chạy.
 
+Bản **1.7.2** sửa bộ đọc cho giao diện ChatGPT mới dùng DIL (`data-user-message-bubble` / `data-markdown-text-style`), bên cạnh giao diện cũ. Khắc phục trường hợp AI đã trả lời nhưng popup báo không tìm thấy lượt chat. Chế độ tự chờ khi ChatGPT bận, tự tiếp tục khi sẵn sàng và tự đọc lại lượt đã gửi sau khi kết nối lại; không cần bấm gửi từng đợt. Tab ChatGPT do extension quản lý được tự tải lại một lần khi nâng cấp bộ đọc.
+
 Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache `_metadata` trong thư mục extension. Nếu cập nhật từ bản cũ có thư mục `_metadata`, chuyển thư mục đó ra ngoài extension rồi bấm **Thử lại** khi tải tiện ích.
 
 ## Dùng nhanh
@@ -60,6 +62,8 @@ node --test tests/quiz.test.cjs
 ```
 
 Không cần cài dependencies hay chạy build. Mã JavaScript và tài nguyên được tải trực tiếp bởi trình duyệt.
+
+Mở `tests/quiz-chat-dom.html` trong trình duyệt để kiểm tra 8 tình huống bộ đọc trên cả hai kiểu giao diện ChatGPT. Kết quả mong đợi là `8 passed`; fixture chỉ chứa dữ liệu mẫu, không gửi tới AI.
 
 ## Điền form bằng AI trong sidebar (1.6.3)
 

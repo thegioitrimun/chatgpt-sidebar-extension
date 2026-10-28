@@ -10,7 +10,7 @@ const question = (number, extra = {}) => ({ id: `q${number}`, number, text: `Câ
 const event = () => ({ addListener() {} });
 function harness(stored = {}) {
   let source = { id: 7, windowId: 1, url: 'https://elearning.vinmec.com/de-thu', status: 'complete' };
-  const tabs = new Map([[7, source]]), messages = [], created = [], writes = [];
+  const tabs = new Map([[7, source]]), messages = [], created = [], writes = [], reloads = [];
   const session = structuredClone(stored);
   const chrome = {
     runtime: { getURL: value => `chrome-extension://test/${value}` },
@@ -22,6 +22,7 @@ function harness(stored = {}) {
       async get(id) { if (!tabs.has(id)) throw new Error('Tab closed'); return structuredClone(tabs.get(id)); },
       async create(options) { created.push(options); const tab = { id: 21, windowId: 1, status: 'complete', ...options }; tabs.set(tab.id, tab); return tab; },
       async update(id, options) { const tab = tabs.get(id); if (!tab) throw new Error('Tab closed'); Object.assign(tab, options); return structuredClone(tab); },
+      async reload(id) { reloads.push(id); },
       async sendMessage(id, message) { messages.push({ id, ...structuredClone(message) }); return { success: true }; },
       onRemoved: event(), onUpdated: event()
     },
@@ -34,7 +35,7 @@ function harness(stored = {}) {
   const page = () => ({ id: 'test', tab: source, url: source.url, frameId: 0, documentId: 'doc1' });
   const chat = () => ({ id: 'test', tab: tabs.get(21), url: 'https://chatgpt.com/c/fixture', frameId: 0, documentId: 'chat1' });
   const mode = () => session['quizSession:1'];
-  return { context, session, messages, created, writes, mode, page, chat, source, async snapshot(items, sender = page()) { return context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: mode().runId, url: source.url, questions: items }, sender); }, async chatEvent(type, extra = {}, sender = chat()) { const job = mode().job; return context.handleQuizMessage({ type, jobId: job.id, token: job.token, runId: mode().runId, conversationUrl: 'https://chatgpt.com/c/fixture', ...extra }, sender); } };
+  return { context, session, messages, created, writes, reloads, mode, page, chat, source, async snapshot(items, sender = page()) { return context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: mode().runId, url: source.url, questions: items }, sender); }, async chatEvent(type, extra = {}, sender = chat()) { const job = mode().job; return context.handleQuizMessage({ type, jobId: job.id, token: job.token, runId: mode().runId, conversationUrl: 'https://chatgpt.com/c/fixture', ...extra }, sender); } };
 }
 
 test('compact answers preserve source numbering, multi-select, unknown and validate all choices', () => {
@@ -108,6 +109,17 @@ test('off/on resumes a pending answer immediately using READ', async () => {
   await h.context.quizToggle(1, false);
   const index = h.messages.length;
   await h.context.quizToggle(1, true, h.source);
+  assert(h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_READ' && message.jobId === id));
+  assert(!h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_START'));
+});
+
+test('reader upgrade refreshes its owned ChatGPT tab and automatically recovers a paused reply', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]); await h.chatEvent('QUIZ_CHAT_WILL_SEND');
+  await h.chatEvent('QUIZ_CHAT_ERROR', { error: 'Old renderer could not find the prompt', reading: true });
+  h.mode().chatBridgeVersion = 1;
+  const id = h.mode().job.id, index = h.messages.length;
+  await h.context.quizWake(1, 21); await h.context.quizWake(1, 21);
+  assert.deepEqual(h.reloads, [21]); assert.equal(h.mode().error, '');
   assert(h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_READ' && message.jobId === id));
   assert(!h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_START'));
 });

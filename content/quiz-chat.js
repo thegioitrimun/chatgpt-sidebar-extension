@@ -5,19 +5,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
   const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
   const report = (state, type, extra = {}) => chrome.runtime.sendMessage({ type, jobId: state.jobId, token: state.token, runId: state.runId, conversationUrl: location.href, ...extra });
   function replyFor(state) {
-    const messages = [...document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]')];
-    let index = -1;
-    for (let cursor = 0; cursor < messages.length; cursor++) {
-      if (messages[cursor].getAttribute('data-message-author-role') === 'user' && messages[cursor].textContent.includes(`QUIZ_JOB:${state.jobId}`)) index = cursor;
-    }
-    if (index < 0) return { found: false };
-    let reply;
-    for (const message of messages.slice(index + 1)) {
-      if (message.getAttribute('data-message-author-role') === 'user') return { found: true, changed: true };
-      reply = message;
-    }
-    const markdown = reply && [...reply.querySelectorAll('.markdown')];
-    return { found: true, text: (markdown?.length ? markdown.map(node => node.innerText || node.textContent).join('\n') : reply?.innerText || reply?.textContent || '').trim() };
+    return globalThis.sidebarQuizChatDOM.readReply(document, state.jobId);
   }
   async function watch(state) {
     const deadline = Date.now() + 300000;
@@ -36,7 +24,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
         if (response?.success || response?.stale) return;
         state.finished = false;
       }
-      if (state.reading && !reply.found && Date.now() - state.startedAt > 15000 && !isGenerating()) throw new Error('Chưa tìm thấy lượt này trong cuộc chat. Kiểm tra tab ChatGPT; bấm thử lại câu thiếu để gửi lại nếu cần.');
+      if (state.reading && !reply.found && Date.now() - state.startedAt > 120000 && !isGenerating()) throw new Error('Chưa tải được lượt này trong cuộc chat. Kiểm tra kết nối hoặc đăng nhập ChatGPT để tiếp tục.');
       await pause(500);
     }
     if (!state.cancelled) throw new Error('ChatGPT chưa trả lời xong hoặc kết nối bị gián đoạn. Bấm đọc lại để tiếp tục.');
@@ -56,7 +44,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
       await watch(state);
     } catch (error) {
       if (!state.cancelled) await report(state, 'QUIZ_CHAT_ERROR', { error: error.message, definitelyUnsent: !state.reading && !state.submitted, reading: state.reading }).catch(() => {});
-    } finally { state.finished = true; }
+    } finally { state.finished = true; ready(); }
   }
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id || !message?.type?.startsWith('QUIZ_CHAT_')) return;
@@ -69,7 +57,8 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
     const reading = message.type === 'QUIZ_CHAT_READ';
     if (current?.jobId === message.jobId && current.token === message.token && current.runId === message.runId && !current.finished && !current.cancelled) { respond({ success: true }); return; }
     if (current && !current.finished && !current.cancelled) { respond({ success: false, ready: false }); return; }
-    if (!reading && (!findInput() || isGenerating() || hasOtherJob() || (normalizeText(inputText(findInput())) && normalizeText(inputText(findInput())) !== normalizeText(message.prompt)))) { respond({ success: false, ready: false }); return; }
+    if (!reading && (!findInput() || isGenerating() || hasOtherJob())) { respond({ success: false, ready: false, waiting: true }); return; }
+    if (!reading && normalizeText(inputText(findInput())) && normalizeText(inputText(findInput())) !== normalizeText(message.prompt)) { respond({ success: false, ready: false, waiting: true, draft: true }); return; }
     const state = { ...message, reading, automatic: true, cancelled: false, finished: false, submitted: false, startedAt: Date.now() };
     current = state;
     respond({ success: true });
@@ -79,7 +68,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
   function ready() {
     clearTimeout(readyTimer);
     readyTimer = setTimeout(() => {
-      const nowReady = !!findInput();
+      const nowReady = !!findInput() && !normalizeText(inputText(findInput())) && !isGenerating() && !hasOtherJob() && (!current || current.finished || current.cancelled);
       if (nowReady && !wasReady) chrome.runtime.sendMessage({ type: 'QUIZ_CHAT_READY' }).catch(() => {});
       wasReady = nowReady;
     }, 200);

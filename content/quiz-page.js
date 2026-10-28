@@ -1,5 +1,8 @@
 (() => {
-  if (globalThis.sidebarQuizPage) { globalThis.sidebarQuizPage.refresh(); return; }
+  // A hotkey can reattach after an extension update. Replace an old bridge
+  // instead of calling a closure whose chrome.runtime context was invalidated.
+  try { globalThis.sidebarQuizPage?.dispose?.(); } catch {}
+  document.getElementById('chatgpt-quiz-overlay')?.remove();
   let state = { enabled: false }, signature = '', timer, host, root, verified = false;
   const topFrame = window.parent === window;
   const send = (type, extra = {}) => chrome.runtime.sendMessage({ type, runId: state.runId, ...extra });
@@ -74,14 +77,19 @@
     try { const response = await send('QUIZ_PAGE_READY'); if (response?.success) { signature = ''; apply(response.state); } }
     catch (error) { if (state.enabled) showError(error); }
   }
-  chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  function receiveState(message, sender, respond) {
     if (message?.type !== 'QUIZ_PAGE_STATE') return;
     respond({ success: true }); apply(message.state);
-  });
-  new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  }
+  chrome.runtime.onMessage.addListener(receiveState);
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   // SPA URL changes need not replace any DOM node.
   let previousUrl = location.href;
-  setInterval(() => { if (previousUrl !== location.href) { previousUrl = location.href; signature = ''; verified = false; render(); schedule(); } }, 2000);
-  globalThis.sidebarQuizPage = { refresh };
+  const interval = setInterval(() => { if (previousUrl !== location.href) { previousUrl = location.href; signature = ''; verified = false; render(); schedule(); } }, 2000);
+  globalThis.sidebarQuizPage = { refresh, dispose() {
+    state = { enabled: false }; clearTimeout(timer); clearInterval(interval); observer.disconnect(); host?.remove();
+    try { chrome.runtime.onMessage.removeListener(receiveState); } catch {}
+  } };
   refresh();
 })();

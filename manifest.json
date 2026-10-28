@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Sidebar - Trợ lý AI",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "ChatGPT Sidebar: đọc trang, chuẩn bị lệnh và điền form bằng AI từ nội dung bạn cung cấp.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -33,6 +33,7 @@
       "js": [
         "form-json.js",
         "quiz-common.js",
+        "content/quiz-chat-dom.js",
         "content/quiz-chat.js",
         "content/chatgpt-inject.js"
       ],
