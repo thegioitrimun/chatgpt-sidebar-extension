@@ -5,17 +5,126 @@ document.addEventListener('DOMContentLoaded', async () => {
   const frame = $('chatgpt-frame');
   let windowId;
   let lastPrompt = '';
+  let lastPromptAutoSend = false;
   let pending = null;
   let busy = false;
   let loadTimer;
   let toastTimer;
   let frameLoadId = 0;
+  let chatReady = false;
+  let autoAnalyzeEnabled = false;
+  let activeTab = null;
+  let tabInfoSequence = 0;
+  let pageRevision = 0;
+  let handledRevision = -1;
+  let automaticJob = null;
+  let automaticTimer;
+  let automaticRunning = false;
+  let automaticRequestId = null;
+  let lastAutomaticPage = '';
   const requests = new Map();
   const handledPrompts = new Set();
   const status = document.querySelector('.status-text');
   const insertButton = $('btn-insert-page');
-  const originalButton = insertButton.innerHTML;
+  const analyzeButton = $('btn-analyze-page');
   const send = (message) => chrome.runtime.sendMessage({ ...message, windowId });
+
+  function autoStatus(text) {
+    $('auto-analysis-status').textContent = text;
+    $('auto-analysis-status').classList.toggle('hidden', !autoAnalyzeEnabled);
+  }
+
+  function cancelAutomaticRequest(frameReload = false) {
+    if (!automaticRequestId) return;
+    const id = automaticRequestId;
+    automaticRequestId = null;
+    frame.contentWindow.postMessage({ type: 'SIDEBAR_CANCEL_PAGE_CONTEXT', id }, 'https://chatgpt.com');
+    // Wait for the frame to confirm cancellation: it may already have clicked Send.
+    if (frameReload) requests.get(id)?.({ success: false, cancelled: true, uncertain: true });
+  }
+
+  function invalidateAutomaticPage() {
+    pageRevision++;
+    automaticJob = null;
+    clearTimeout(automaticTimer);
+    automaticTimer = null;
+    cancelAutomaticRequest();
+  }
+
+  const currentAutomaticJob = job => autoAnalyzeEnabled && automaticJob === job && job.revision === pageRevision;
+
+  function scheduleAutomaticAnalysis(delay = 800) {
+    if (automaticTimer && delay > 0) return;
+    clearTimeout(automaticTimer);
+    automaticTimer = null;
+    if (!autoAnalyzeEnabled || !activeTab) return;
+    let url;
+    try { url = new URL(activeTab.url); } catch { /* Browser pages have no readable URL. */ }
+    if (!url || !/^https?:$/.test(url.protocol) || ['chatgpt.com', 'chat.openai.com', 'auth.openai.com', 'chromewebstore.google.com'].includes(url.hostname) || (url.hostname === 'chrome.google.com' && url.pathname.startsWith('/webstore'))) {
+      automaticJob = null;
+      autoStatus('Tự động phân tích: chờ một trang web có nội dung.');
+      return;
+    }
+    if (activeTab.status === 'loading') {
+      autoStatus('Tự động phân tích: đang chờ trang tải xong…');
+      return;
+    }
+    if (handledRevision === pageRevision) return;
+    automaticJob ||= { revision: pageRevision, tabId: activeTab.id, url: activeTab.url };
+    automaticTimer = setTimeout(runAutomaticAnalysis, delay);
+  }
+
+  function requestChatState() {
+    return new Promise(resolve => {
+      const id = crypto.randomUUID();
+      const timer = setTimeout(() => { requests.delete(id); resolve({ ready: false }); }, 2000);
+      requests.set(id, result => { clearTimeout(timer); requests.delete(id); resolve(result); });
+      frame.contentWindow.postMessage({ type: 'SIDEBAR_GET_CHAT_STATE', id }, 'https://chatgpt.com');
+    });
+  }
+
+  async function runAutomaticAnalysis() {
+    automaticTimer = null;
+    if (automaticRunning || !automaticJob) return;
+    const job = automaticJob;
+    automaticRunning = true;
+    try {
+      if (!currentAutomaticJob(job)) return;
+      if (!chatReady || busy || window.sidebarFormAnalysisRunning) {
+        autoStatus('Tự động phân tích: đang chờ ChatGPT sẵn sàng…');
+        return;
+      }
+      const state = await requestChatState();
+      if (!currentAutomaticJob(job)) return;
+      if (!state.ready || state.busy || state.hasDraft) {
+        autoStatus(state.hasDraft ? 'Tự động phân tích: đang chờ ô chat trống.' : 'Tự động phân tích: đang chờ ChatGPT sẵn sàng…');
+        return;
+      }
+      autoStatus('Đang tự động đọc và phân tích trang…');
+      const result = await insertPage(false, true, job);
+      if (!currentAutomaticJob(job) || result?.retry) return;
+      handledRevision = job.revision;
+      automaticJob = null;
+      autoStatus(result?.success ? 'Đã tự gửi trang để phân tích. Chờ trang tiếp theo.' : result?.skipped ? 'Trang này đã được xử lý. Chờ trang tiếp theo.' : `Tự động phân tích tạm dừng: ${result?.error || 'kiểm tra ChatGPT rồi bấm Phân tích ngay.'}`);
+    } catch (error) {
+      if (currentAutomaticJob(job)) {
+        handledRevision = job.revision;
+        automaticJob = null;
+        autoStatus(`Tự động phân tích tạm dừng: ${error.message}`);
+      }
+    } finally {
+      automaticRunning = false;
+      if (autoAnalyzeEnabled && automaticJob) scheduleAutomaticAnalysis(1500);
+    }
+  }
+
+  function applyAutomaticSetting(enabled) {
+    autoAnalyzeEnabled = enabled === true;
+    $('setting-auto-analyze').checked = autoAnalyzeEnabled;
+    invalidateAutomaticPage();
+    autoStatus('Tự động phân tích đang bật.');
+    if (autoAnalyzeEnabled) scheduleAutomaticAnalysis();
+  }
 
   function toast(text) {
     clearTimeout(toastTimer);
@@ -31,6 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function showFallback() {
+    chatReady = false;
     stopLoading();
     status.textContent = 'Mở tab';
     $('error-overlay').classList.remove('hidden');
@@ -38,6 +148,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function reloadFrame() {
     const loadId = ++frameLoadId;
+    chatReady = false;
+    cancelAutomaticRequest(true);
     status.textContent = 'Đang tải';
     $('error-overlay').classList.add('hidden');
     $('progress-bar').classList.remove('hidden');
@@ -68,12 +180,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function inject(text) {
+  function inject(text, autoSend = false, automatic = false) {
     return new Promise((resolve) => {
       const id = crypto.randomUUID();
-      const timer = setTimeout(() => { requests.delete(id); resolve(false); }, 3500);
-      requests.set(id, (success) => { clearTimeout(timer); requests.delete(id); resolve(success); });
-      frame.contentWindow.postMessage({ type: 'SIDEBAR_INJECT_PAGE_CONTEXT', id, text }, 'https://chatgpt.com');
+      const timer = setTimeout(() => {
+        requests.delete(id);
+        resolve({ success: false, error: autoSend ? 'Chưa xác nhận được yêu cầu phân tích. Kiểm tra ChatGPT trước khi bấm lại để tránh gửi trùng.' : '' });
+      }, autoSend ? 10000 : 3500);
+      requests.set(id, (result) => { clearTimeout(timer); requests.delete(id); resolve(result); });
+      if (automatic) automaticRequestId = id;
+      frame.contentWindow.postMessage({ type: 'SIDEBAR_INJECT_PAGE_CONTEXT', id, text, autoSend, automatic }, 'https://chatgpt.com');
     });
   }
 
@@ -84,30 +200,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     await send({ type: 'ACK_PENDING_PROMPT', id: delivered.id }).catch(() => {});
   }
 
-  async function deliver(text) {
-    if (window.sidebarFormAnalysisRunning) { toast('AI đang phân tích form. Chờ xong hoặc hủy trước khi đưa nội dung khác vào chat.'); return false; }
+  async function deliver(text, autoSend = false, automatic = false) {
+    if (window.sidebarFormAnalysisRunning) {
+      const error = 'AI đang phân tích form. Chờ xong hoặc hủy trước khi đưa nội dung khác vào chat.';
+      if (!automatic) toast(error);
+      return { success: false, retry: automatic, error };
+    }
     lastPrompt = text;
+    lastPromptAutoSend = autoSend;
     $('prompt-preview').value = text;
-    const [copied, inserted] = await Promise.all([copy(text), inject(text)]);
-    if (lastPrompt !== text) return inserted;
+    const [copied, result] = await Promise.all([automatic ? false : copy(text), inject(text, autoSend, automatic)]);
+    if (automatic) automaticRequestId = null;
+    const inserted = result.success === true;
+    if (lastPrompt !== text || automatic) return result;
     if (inserted) {
-      toast('Đã điền vào ô chat. Bạn có thể sửa nội dung rồi bấm gửi.');
+      toast(result.sent ? 'Đã gửi nội dung trang. ChatGPT đang phân tích.' : 'Đã điền vào ô chat. Bạn có thể sửa nội dung rồi bấm gửi.');
       await acknowledgePrompt(text);
+    } else if (autoSend) {
+      toast(result.error || 'Chưa gửi được yêu cầu. Mở ChatGPT trong sidebar, kiểm tra ô chat rồi bấm Phân tích ngay lần nữa.');
     } else {
       toast(copied ? 'Đã sao chép nội dung! Bạn chỉ cần nhấn Cmd+V (hoặc Ctrl+V) vào ô chat để dán.' : 'Vui lòng sao chép nội dung rồi dán vào ô chat.');
     }
-    return inserted;
+    return result;
   }
 
   window.addEventListener('message', (event) => {
     if (event.source !== frame.contentWindow || event.origin !== 'https://chatgpt.com') return;
     if (event.data?.type === 'SIDEBAR_CHAT_READY') {
+      chatReady = true;
       stopLoading();
       status.textContent = 'Sẵn sàng';
       $('error-overlay').classList.add('hidden');
-      if (lastPrompt) deliver(lastPrompt).catch((error) => toast(error.message));
-    } else if (event.data?.type === 'SIDEBAR_INJECT_RESULT') {
-      requests.get(event.data.id)?.(event.data.success === true);
+      // An automatic send belongs to its click only; readiness/reloads must not replay it.
+      if (lastPrompt && !lastPromptAutoSend) deliver(lastPrompt).catch((error) => toast(error.message));
+      if (automaticJob) scheduleAutomaticAnalysis(0);
+    } else if (['SIDEBAR_INJECT_RESULT', 'SIDEBAR_CHAT_STATE'].includes(event.data?.type)) {
+      requests.get(event.data.id)?.(event.data);
     }
   });
   frame.addEventListener('error', showFallback);
@@ -127,9 +255,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function updateActiveTabInfo() {
+    const sequence = ++tabInfoSequence;
     try {
       const response = await send({ type: 'GET_ACTIVE_TAB_INFO' });
+      if (sequence !== tabInfoSequence) return;
       const tab = response?.tab;
+      if (tab?.id !== activeTab?.id || tab?.url !== activeTab?.url) invalidateAutomaticPage();
+      activeTab = tab || null;
       $('active-page-title').textContent = tab?.title || tab?.url || 'Không có trang web đang mở';
       $('active-page-title').title = tab?.url || '';
       $('active-page-icon').textContent = '🌐';
@@ -140,18 +272,52 @@ document.addEventListener('DOMContentLoaded', async () => {
         image.addEventListener('error', () => { $('active-page-icon').textContent = '🌐'; });
         $('active-page-icon').replaceChildren(image);
       }
+      scheduleAutomaticAnalysis();
     } catch (error) { toast(error.message); }
   }
 
-  async function insertPage(summarize = false) {
-    if (busy) return;
+  async function insertPage(summarize = false, autoSend = false, automatic = null) {
+    if (busy) return { success: false, retry: true };
+    if (window.sidebarFormAnalysisRunning) {
+      if (!automatic) toast('AI đang phân tích form. Chờ xong hoặc hủy trước khi đưa nội dung khác vào chat.');
+      return { success: false, retry: true };
+    }
+    if (!automatic) {
+      handledRevision = pageRevision;
+      automaticJob = null;
+      clearTimeout(automaticTimer);
+      automaticTimer = null;
+    }
     busy = true;
+    const button = autoSend ? analyzeButton : insertButton;
+    const originalButton = button.innerHTML;
     insertButton.disabled = true;
-    insertButton.classList.add('loading');
-    insertButton.textContent = 'Đang đọc…';
+    analyzeButton.disabled = true;
+    button.classList.add('loading');
+    button.textContent = 'Đang đọc…';
+    let automaticPageKey;
     try {
-      const response = await send({ type: 'GET_ACTIVE_PAGE_CONTENT' });
+      const response = await send({ type: 'GET_ACTIVE_PAGE_CONTENT', ...(automatic ? { tabId: automatic.tabId, pageUrl: automatic.url } : {}) });
+      if (automatic && !currentAutomaticJob(automatic)) return { success: false, cancelled: true };
       if (!response?.success) throw new Error(response?.error || 'Không đọc được trang.');
+      if (automatic) {
+        const current = await send({ type: 'GET_ACTIVE_TAB_INFO' });
+        if (!currentAutomaticJob(automatic)) return { success: false, cancelled: true };
+        if (current.tab?.id !== automatic.tabId || current.tab?.url !== automatic.url || current.tab?.status === 'loading') {
+          await updateActiveTabInfo();
+          return { success: false, cancelled: true };
+        }
+        automaticPageKey = JSON.stringify([automatic.tabId, response.page?.documentId || automatic.revision, automatic.url]);
+        if (lastAutomaticPage === automaticPageKey) return { success: false, skipped: true };
+        // Record attempts before dispatch: an uncertain send must never be replayed on reopening.
+        await chrome.storage.session.set({ [`lastAutomaticPage:${windowId}`]: automaticPageKey });
+        lastAutomaticPage = automaticPageKey;
+        if (!currentAutomaticJob(automatic)) {
+          lastAutomaticPage = '';
+          await chrome.storage.session.remove(`lastAutomaticPage:${windowId}`);
+          return { success: false, cancelled: true };
+        }
+      }
       const { title, url, selectedText, content, isTruncated } = response.data;
       const prompt = selectedText
         ? [
@@ -165,14 +331,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             `Nội dung trang:\n${content || selectedText}`,
             isTruncated ? '(Nội dung được giới hạn ở 12.000 ký tự đầu.)' : ''
           ].filter(Boolean).join('\n\n');
-      await deliver(prompt);
+      if (autoSend) button.textContent = 'Đang gửi…';
+      const result = await deliver(prompt, autoSend, !!automatic);
+      if (automatic && result.cancelled && !result.uncertain && lastAutomaticPage === automaticPageKey) {
+        lastAutomaticPage = '';
+        await chrome.storage.session.remove(`lastAutomaticPage:${windowId}`);
+      }
       $('prompts-drawer').classList.add('hidden');
-    } catch (error) { toast(error.message); }
+      return result;
+    } catch (error) {
+      if (!automatic) toast(error.message);
+      return { success: false, error: error.message };
+    }
     finally {
       busy = false;
       insertButton.disabled = false;
-      insertButton.classList.remove('loading');
-      insertButton.innerHTML = originalButton;
+      analyzeButton.disabled = false;
+      button.classList.remove('loading');
+      button.innerHTML = originalButton;
     }
   }
 
@@ -184,7 +360,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   $('btn-insert-page').addEventListener('click', () => insertPage());
+  $('btn-analyze-page').addEventListener('click', () => insertPage(false, true));
   $('btn-summarize-page').addEventListener('click', () => insertPage(true));
+  $('btn-settings').addEventListener('click', () => $('settings-modal').showModal());
+  for (const id of ['btn-close-settings', 'btn-done-settings']) $(id).addEventListener('click', () => $('settings-modal').close());
+  $('setting-auto-analyze').addEventListener('change', async () => {
+    const previous = autoAnalyzeEnabled;
+    const enabled = $('setting-auto-analyze').checked;
+    $('setting-auto-analyze').disabled = true;
+    applyAutomaticSetting(enabled);
+    try { await chrome.storage.local.set({ autoAnalyzeOnNavigation: enabled }); }
+    catch (error) { applyAutomaticSetting(previous); toast(`Không lưu được cài đặt: ${error.message}`); }
+    finally { $('setting-auto-analyze').disabled = false; }
+  });
   for (const id of ['btn-reload', 'btn-home', 'btn-banner-reload', 'btn-error-retry']) $(id).addEventListener('click', reloadFrame);
   for (const id of ['btn-open-tab', 'btn-banner-login', 'btn-modal-open-login', 'btn-error-open']) $(id).addEventListener('click', openTab);
   $('btn-close-error')?.addEventListener('click', () => {
@@ -197,7 +385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (await copy(text)) toast('Đã sao chép. Dán vào ChatGPT bằng Cmd+V hoặc Ctrl+V.');
     else { $('prompt-preview').focus(); $('prompt-preview').select(); toast('Nhấn Cmd+C hoặc Ctrl+C để sao chép nội dung đã chọn.'); }
   });
-  $('prompt-preview').addEventListener('input', () => { lastPrompt = $('prompt-preview').value; });
+  $('prompt-preview').addEventListener('input', () => { lastPrompt = $('prompt-preview').value; lastPromptAutoSend = false; });
   $('btn-banner-close').addEventListener('click', () => {
     $('login-banner').classList.add('hidden');
     chrome.storage.local.set({ hideLoginBanner: true }).catch(() => {});
@@ -223,14 +411,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   try {
     windowId = (await chrome.windows.getCurrent()).id;
-    chrome.tabs.onActivated.addListener((info) => { if (info.windowId === windowId) updateActiveTabInfo(); });
+    chrome.tabs.onActivated.addListener((info) => {
+      if (info.windowId !== windowId) return;
+      invalidateAutomaticPage();
+      activeTab = null;
+      updateActiveTabInfo();
+    });
     chrome.tabs.onUpdated.addListener((id, info, tab) => {
-      if (tab.active && tab.windowId === windowId && (info.title || info.url || info.status === 'complete')) updateActiveTabInfo();
+      if (!tab.active || tab.windowId !== windowId) return;
+      if (info.url || info.status === 'loading') {
+        invalidateAutomaticPage();
+        activeTab = null;
+      }
+      if (info.title || info.url || info.status) updateActiveTabInfo();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local') receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));
+      if (area !== 'local') return;
+      receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));
+      if (changes.autoAnalyzeOnNavigation && (changes.autoAnalyzeOnNavigation.newValue === true) !== autoAnalyzeEnabled) applyAutomaticSetting(changes.autoAnalyzeOnNavigation.newValue);
     });
-    const stored = await chrome.storage.local.get(['hideLoginBanner', `pendingPrompt:${windowId}`]);
+    const [stored, session] = await Promise.all([
+      chrome.storage.local.get(['hideLoginBanner', 'autoAnalyzeOnNavigation', `pendingPrompt:${windowId}`]),
+      chrome.storage.session.get(`lastAutomaticPage:${windowId}`)
+    ]);
+    lastAutomaticPage = session[`lastAutomaticPage:${windowId}`] || '';
+    applyAutomaticSetting(stored.autoAnalyzeOnNavigation);
     if (stored.hideLoginBanner) $('login-banner').classList.add('hidden');
     updateActiveTabInfo();
     reloadFrame();

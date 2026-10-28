@@ -1,6 +1,18 @@
 // Runs in ChatGPT's isolated content-script world, including the sidebar frame.
 (() => {
   const extensionOrigin = chrome.runtime.getURL('').replace(/\/$/, '');
+  // Keep the embedded chat light without changing the user's ChatGPT tab preference.
+  if (window.parent !== window) {
+    const root = document.documentElement;
+    const applyLightTheme = () => {
+      if (root.classList.contains('dark')) root.classList.remove('dark');
+      if (!root.classList.contains('light')) root.classList.add('light');
+      if (root.dataset.theme !== 'light') root.dataset.theme = 'light';
+      if (root.style.colorScheme !== 'light') root.style.colorScheme = 'light';
+    };
+    applyLightTheme();
+    new MutationObserver(applyLightTheme).observe(root, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] });
+  }
   const findInput = () => document.querySelector([
     '#prompt-textarea',
     '[data-testid="prompt-textarea"]',
@@ -13,13 +25,15 @@
     'textarea[placeholder]'
   ].join(', '));
 
-  function insertText(text) {
+  function insertText(text, automatic = false) {
     const input = findInput();
     if (!input || input.disabled || input.getAttribute('contenteditable') === 'false') {
       return { success: false, reason: 'INPUT_NOT_FOUND' };
     }
-    try { window.focus(); } catch {}
-    input.focus();
+    if (!automatic) {
+      try { window.focus(); } catch {}
+      input.focus();
+    }
     if (input instanceof HTMLTextAreaElement) {
       // Native setter also updates React-controlled textareas.
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
@@ -29,6 +43,7 @@
       input.dispatchEvent(new Event('change', { bubbles: true }));
       return { success: input.value.length > 0 };
     }
+    if (automatic) input.focus({ preventScroll: true });
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(input);
@@ -52,7 +67,14 @@
       try {
         const paragraphs = text.split('\n\n').filter(Boolean);
         if (paragraphs.length > 0) {
-          input.innerHTML = paragraphs.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+          input.replaceChildren(...paragraphs.map(text => {
+            const paragraph = document.createElement('p');
+            text.split('\n').forEach((line, index) => {
+              if (index) paragraph.append(document.createElement('br'));
+              paragraph.append(document.createTextNode(line));
+            });
+            return paragraph;
+          }));
         } else {
           input.textContent = text;
         }
@@ -69,7 +91,62 @@
 
   const formRuns = new Map();
   const readers = new Map();
+  const pageContextRequests = new Map();
   const sleep = (duration) => new Promise(resolve => setTimeout(resolve, duration));
+  let pageSendInProgress = false;
+  const normalizeText = value => (value || '').replace(/\s+/g, ' ').trim();
+  const inputText = input => input instanceof HTMLTextAreaElement ? input.value : input?.innerText || input?.textContent || '';
+  const isGenerating = () => !!document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Dừng tạo"], button[aria-label="Dừng tạo câu trả lời"]');
+
+  async function injectPageContext(text, autoSend, state = {}) {
+    if (pageSendInProgress) return { success: false, error: 'Đang gửi yêu cầu phân tích. Vui lòng chờ.' };
+    if (!autoSend) return insertText(text);
+    pageSendInProgress = true;
+    let inserted = false;
+    try {
+      if (state.cancelled) return { success: false, cancelled: true };
+      if (isGenerating() || [...formRuns.values()].some(state => !state.finished && !state.cancelled)) {
+        throw new Error('ChatGPT đang trả lời. Chờ xong rồi bấm Phân tích ngay.');
+      }
+      const input = findInput();
+      if (!input) throw new Error('ChatGPT chưa sẵn sàng. Đăng nhập hoặc tải lại sidebar rồi bấm Phân tích ngay.');
+      if (normalizeText(inputText(input)) && normalizeText(inputText(input)) !== normalizeText(text)) {
+        throw new Error('Ô ChatGPT đang có bản nháp khác. Giữ hoặc xóa bản nháp rồi bấm Phân tích ngay.');
+      }
+      if (!insertText(text, state.automatic).success || normalizeText(inputText(input)) !== normalizeText(text)) {
+        throw new Error('Chưa điền đủ nội dung vào ô chat. Kiểm tra ChatGPT rồi thử lại.');
+      }
+      inserted = true;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        if (state.cancelled) {
+          // Remove only our unsent draft; preserve anything the user changed.
+          if (findInput() === input && normalizeText(inputText(input)) === normalizeText(text)) insertText('', true);
+          return { success: false, cancelled: true };
+        }
+        if (findInput() !== input || !input.isConnected || normalizeText(inputText(input)) !== normalizeText(text)) {
+          throw new Error('Nội dung ô chat đã thay đổi. Kiểm tra nội dung trước khi gửi lại.');
+        }
+        if (isGenerating()) throw new Error('ChatGPT đang trả lời. Chờ xong rồi bấm Phân tích ngay.');
+        const button = document.querySelector('button[data-testid="send-button"], button[data-testid="composer-submit-button"], button#composer-submit-button, button[aria-label="Send"], button[aria-label="Gửi"], button[aria-label="Send prompt"], button[aria-label="Send message"], button[aria-label="Gửi tin nhắn"], form button[type="submit"]');
+        if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
+          button.click();
+          for (let check = 0; check < 15; check++) {
+            const current = findInput();
+            if ((current && !normalizeText(inputText(current))) || isGenerating()) return { success: true, sent: true };
+            await sleep(100);
+          }
+          throw new Error('Chưa xác nhận được ChatGPT đã gửi. Kiểm tra cuộc chat trước khi bấm lại để tránh gửi trùng.');
+        }
+        await sleep(200);
+      }
+      throw new Error('Đã điền nội dung nhưng nút gửi ChatGPT chưa sẵn sàng. Kiểm tra ô chat để gửi thủ công.');
+    } catch (error) {
+      return { success: false, inserted, error: error.message };
+    } finally {
+      pageSendInProgress = false;
+    }
+  }
+
   const reportForm = (message, result) => window.parent.postMessage({ ...result, type: 'SIDEBAR_FORM_AI_EVENT', eventType: result.type, jobId: message.jobId, bridgeToken: message.bridgeToken, conversationUrl: location.href }, extensionOrigin);
 
   function readFormReply(message) {
@@ -145,11 +222,24 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type !== 'INJECT_PAGE_CONTEXT' || typeof message.text !== 'string') return;
-    sendResponse(insertText(message.text));
+    sendResponse(pageSendInProgress ? { success: false } : insertText(message.text));
   });
 
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent || event.origin !== extensionOrigin) return;
+    if (event.data?.type === 'SIDEBAR_GET_CHAT_STATE') {
+      window.parent.postMessage({
+        type: 'SIDEBAR_CHAT_STATE', id: event.data.id,
+        ready: !!findInput(), hasDraft: !!normalizeText(inputText(findInput())),
+        busy: pageSendInProgress || isGenerating() || [...formRuns.values()].some(state => !state.finished && !state.cancelled)
+      }, extensionOrigin);
+      return;
+    }
+    if (event.data?.type === 'SIDEBAR_CANCEL_PAGE_CONTEXT') {
+      const state = pageContextRequests.get(event.data.id);
+      if (state) state.cancelled = true;
+      return;
+    }
     if (event.data?.type === 'SIDEBAR_FORM_AI_RESULT_ACK') {
       const reader = readers.get(event.data.jobId);
       if (reader && reader.bridgeToken === event.data.bridgeToken && event.data.success === true) reader.delivered = true;
@@ -174,7 +264,7 @@
       const message = event.data;
       if (typeof message.prompt !== 'string' || typeof message.jobId !== 'string' || typeof message.bridgeToken !== 'string' || !Array.isArray(message.fieldIds)) return;
       const acknowledge = success => window.parent.postMessage({ type: 'SIDEBAR_FORM_AI_ACK', jobId: message.jobId, bridgeToken: message.bridgeToken, success }, extensionOrigin);
-      if (!findInput()) { acknowledge(false); return; }
+      if (!findInput() || pageSendInProgress) { acknowledge(false); return; }
       const existing = formRuns.get(message.jobId);
       if (existing && !existing.finished && !existing.cancelled) { acknowledge(existing.bridgeToken === message.bridgeToken); return; }
       const active = [...formRuns.values()].some(state => !state.finished && !state.cancelled);
@@ -186,8 +276,12 @@
       return;
     }
     if (event.data?.type === 'SIDEBAR_INJECT_PAGE_CONTEXT' && typeof event.data.text === 'string') {
-      const result = insertText(event.data.text);
-      window.parent.postMessage({ type: 'SIDEBAR_INJECT_RESULT', id: event.data.id, ...result }, extensionOrigin);
+      const message = event.data;
+      const state = { cancelled: false, automatic: message.automatic === true };
+      pageContextRequests.set(message.id, state);
+      injectPageContext(message.text, message.autoSend === true, state).then(result => {
+        window.parent.postMessage({ type: 'SIDEBAR_INJECT_RESULT', id: message.id, ...result }, extensionOrigin);
+      }).finally(() => pageContextRequests.delete(message.id));
     }
   });
 

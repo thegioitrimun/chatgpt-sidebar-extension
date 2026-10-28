@@ -16,6 +16,8 @@ Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache
 ## Dùng nhanh
 
 - Mở trang web, bấm **Đưa vào ô chat**. Tiện ích đọc văn bản hiển thị (tối đa 12.000 ký tự) và đoạn đang chọn, rồi điền lệnh vào ChatGPT. Bạn tự kiểm tra và bấm gửi.
+- Bấm **Phân tích ngay** để lấy nội dung trang (hoặc đoạn đang chọn), đưa vào ô chat và tự gửi cho ChatGPT phân tích trong sidebar. Nếu ChatGPT đang trả lời hoặc ô chat có bản nháp khác, tiện ích báo để bạn xử lý rồi bấm lại. Thao tác này không tự gửi lại khi tải lại sidebar.
+- Giao diện tiện ích và ChatGPT nhúng dùng **light mode**. Bấm biểu tượng bánh răng **Cài đặt** → bật **Tự động phân tích** để tự lấy nội dung và gửi phân tích khi chuyển tab, đổi địa chỉ (kể cả trang không tải lại toàn bộ) hoặc tải lại trang. Cài đặt được lưu, mặc định tắt. Khi bật sẽ phân tích luôn trang hiện tại; chỉ hoạt động khi sidebar đang mở. Tiện ích chờ trang tải xong và ô chat trống, chờ lượt trả lời/phân tích form kết thúc, rồi chỉ xử lý trang mới nhất. Không tự phân tích tab ChatGPT, trang hệ thống hay Chrome Web Store. Có thể tắt công tắc để hủy yêu cầu đang chờ; nội dung đã gửi vẫn ở trong cuộc chat.
 - Bấm biểu tượng tia sét để chọn **Tóm tắt trang** hoặc mẫu lệnh dịch, sửa văn bản, giải thích, soạn email.
 - Bôi đen văn bản → chuột phải → chọn tác vụ ChatGPT. Lệnh được giữ trong bộ nhớ đến khi điền thành công, kể cả khi sidebar chưa mở.
 - Đăng nhập ChatGPT trên tab thông thường, rồi tải lại sidebar.
@@ -24,13 +26,13 @@ Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache
 
 Khung nhúng phụ thuộc vào xác thực và chính sách cookie của ChatGPT / trình duyệt. Sau 15 giây chưa tìm được ô chat, tiện ích hiện phần hướng dẫn và nội dung đã chuẩn bị.
 
-Bấm **Mở tab ChatGPT / Đưa nội dung** để mở hoặc dùng lại tab ChatGPT và điền nội dung. Nếu chưa đăng nhập, đăng nhập rồi bấm lại; bạn cũng có thể **Sao chép nội dung** và dán bằng Cmd+V / Ctrl+V. Các công cụ đọc trang chỉ chuẩn bị nội dung; tính năng điền form gửi yêu cầu phân tích khi bạn bấm nút phân tích.
+Bấm **Mở tab ChatGPT / Đưa nội dung** để mở hoặc dùng lại tab ChatGPT và điền nội dung. Nếu chưa đăng nhập, đăng nhập rồi bấm lại; bạn cũng có thể **Sao chép nội dung** và dán bằng Cmd+V / Ctrl+V. Nút **Phân tích ngay** gửi yêu cầu trong sidebar khi ChatGPT sẵn sàng; nếu chưa sẵn sàng, kiểm tra chat rồi bấm lại. Tính năng điền form gửi yêu cầu phân tích khi bạn bấm nút phân tích.
 
 Không đọc được trang hệ thống trình duyệt, Chrome Web Store hoặc trang chưa có văn bản. Hãy chuyển sang một trang web thông thường.
 
 ## Quyền truy cập
 
-Tiện ích cần đọc trang web khi bạn bấm lấy nội dung, quản lý tab ChatGPT, sao chép lệnh, lưu lệnh chờ và tạo menu chuột phải. Chỉ khung nhúng ChatGPT được xử lý các header chặn iframe; tab đăng nhập và các tài nguyên khác giữ header của website.
+Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật tự động phân tích, quản lý tab ChatGPT, sao chép lệnh, lưu lệnh chờ và tạo menu chuột phải. Chế độ tự động lưu dấu trang đã xử lý trong bộ nhớ phiên để tránh gửi lặp khi mở lại sidebar; không tự sao chép đè clipboard. Chỉ khung nhúng ChatGPT được xử lý các header chặn iframe; tab đăng nhập và các tài nguyên khác giữ header của website.
 
 ## Kiểm tra mã
 

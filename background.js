@@ -146,16 +146,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const tab = await getActiveTab(message.windowId);
     if (message.type === 'GET_ACTIVE_TAB_INFO') {
-      return tab ? { success: true, tab: { id: tab.id, title: tab.title, url: tab.url, favIconUrl: tab.favIconUrl } } : { success: false };
+      return tab ? { success: true, tab: { id: tab.id, title: tab.title, url: tab.url, status: tab.status, favIconUrl: tab.favIconUrl } } : { success: false };
     }
     if (!tab?.id || !/^https?:\/\//i.test(tab.url || '') || /^https:\/\/chromewebstore.google.com\//i.test(tab.url)) {
       return { success: false, error: 'Hãy mở một trang web thông thường để đọc nội dung.' };
     }
+    if (Number.isInteger(message.tabId) && (tab.id !== message.tabId || tab.url !== message.pageUrl)) {
+      return { success: false, error: 'Trang đã thay đổi. Đang chờ trang hiện tại.' };
+    }
     const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractPageContent });
+    if (Number.isInteger(message.tabId)) {
+      const current = await getActiveTab(message.windowId);
+      if (current?.id !== tab.id || current?.url !== tab.url || result?.result?.url !== tab.url) {
+        return { success: false, error: 'Trang đã thay đổi trong lúc đọc nội dung.' };
+      }
+    }
     if (!result?.result?.content && !result?.result?.selectedText) {
       return { success: false, error: 'Trang này chưa có văn bản để đọc. Thử chọn một đoạn văn bản rồi bấm lại.' };
     }
-    return { success: true, data: result.result };
+    return { success: true, data: result.result, page: { tabId: tab.id, documentId: result.documentId, url: result.result.url } };
   })().then(sendResponse).catch((error) => {
     sendResponse({ success: false, error: error.message });
   });

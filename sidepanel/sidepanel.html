@@ -65,6 +65,13 @@
           <line x1="12" y1="17" x2="12.01" y2="17"></line>
         </svg>
       </button>
+
+      <button id="btn-settings" class="tool-btn" title="Cài đặt" aria-label="Cài đặt" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m10 3-.5 2-2 1-2-.5-2 3.5L5 10.5v3L3.5 15l2 3.5 2-.5 2 1 .5 2h4l.5-2 2-1 2 .5 2-3.5-1.5-1.5v-3L20.5 9l-2-3.5-2 .5-2-1-.5-2Z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
     </nav>
   </header>
 
@@ -84,8 +91,17 @@
         </svg>
         <span>Đưa vào ô chat</span>
       </button>
+      <button id="btn-analyze-page" class="btn-insert-page btn-analyze-page" title="Lấy nội dung trang, đưa vào ô chat và tự gửi để ChatGPT phân tích ngay">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true">
+          <path d="m5 3 16 9-16 9 3-9-3-9Z"></path>
+          <path d="M8 12h13"></path>
+        </svg>
+        <span>Phân tích ngay</span>
+      </button>
     </div>
   </div>
+
+  <p id="auto-analysis-status" class="auto-analysis-status hidden" role="status" aria-live="polite"></p>
 
   <div id="form-ai-banner" class="form-ai-banner hidden"><span id="form-ai-banner-status" role="status" aria-live="polite"></span><button id="btn-return-form" class="banner-btn primary">Xem điền form</button></div>
 
@@ -266,6 +282,22 @@
       </div>
     </div>
   </div>
+
+  <dialog id="settings-modal" class="settings-modal" aria-labelledby="settings-title">
+    <div class="modal-header">
+      <h2 id="settings-title" class="modal-title">Cài đặt</h2>
+      <button id="btn-close-settings" class="tool-btn small" aria-label="Đóng cài đặt">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-appearance"><span>Giao diện</span><span class="settings-theme">Sáng</span></div>
+      <label class="settings-toggle-row" for="setting-auto-analyze">
+        <span class="settings-copy"><strong>Tự động phân tích</strong><span id="auto-analyze-description">Tự đưa nội dung vào chat và gửi phân tích khi chuyển tab, đổi địa chỉ hoặc tải lại trang.</span></span>
+        <span class="switch"><input id="setting-auto-analyze" type="checkbox" role="switch" aria-describedby="auto-analyze-description auto-analyze-note"><span class="switch-track" aria-hidden="true"></span></span>
+      </label>
+      <p id="auto-analyze-note" class="settings-note">Khi bật, trang hiện tại cũng được gửi tới ChatGPT. Chỉ hoạt động khi sidebar mở; chờ nếu AI đang trả lời hoặc ô chat có bản nháp.</p>
+    </div>
+    <div class="modal-footer"><button id="btn-done-settings" class="btn-primary">Xong</button></div>
+  </dialog>
 
   <!-- Toast Notification -->
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
