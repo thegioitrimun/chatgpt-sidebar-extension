@@ -119,6 +119,13 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
   });
 }
 
+function quizCreateBackgroundWindow(content) {
+  // Brave/macOS can inherit the active fullscreen Space even when a normal
+  // window requests minimized/unfocused. An explicitly sized, inactive popup
+  // avoids that transition; the caller journals it, then minimizes before work.
+  return chrome.windows.create({ ...content, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+}
+
 async function quizEnsureChat(mode) {
   // Recover a window journaled just before the worker stopped, without opening
   // another one. Only adopt the single ChatGPT tab in our recorded window.
@@ -137,19 +144,19 @@ async function quizEnsureChat(mode) {
       if (tab.windowId === mode.windowId || window.tabs?.length !== 1 || window.tabs[0].id !== tab.id) {
         // Migrate our legacy background tab, or detach it if the user moved it
         // into a shared window. Never minimize a window containing other tabs.
-        const ownWindow = await chrome.windows.create({ tabId: tab.id, type: 'normal', state: 'minimized', focused: false });
+        const ownWindow = await quizCreateBackgroundWindow({ tabId: tab.id });
         if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
         mode.chatWindowId = ownWindow.id;
         mode.chatRevealed = false;
         await quizSave(mode);
-        // Brave can return a normal window despite the initial minimized state.
-        // Enforce it explicitly before dispatching any work.
-        await chrome.windows.update(ownWindow.id, { state: 'minimized', focused: false });
+        // Enforce state only: focused:false would bring the next window in the
+        // z-order forward. Creation can also return before state has settled.
+        await chrome.windows.update(ownWindow.id, { state: 'minimized' });
         tab = await chrome.tabs.get(tab.id);
       } else {
         mode.chatWindowId = window.id;
         await quizSave(mode);
-        if (!mode.chatRevealed && window.state !== 'minimized') await chrome.windows.update(window.id, { state: 'minimized', focused: false });
+        if (!mode.chatRevealed && window.state !== 'minimized') await chrome.windows.update(window.id, { state: 'minimized' });
       }
       await chrome.tabs.update(tab.id, { autoDiscardable: false });
       if (mode.chatBridgeVersion !== quizChatBridgeVersion) {
@@ -164,13 +171,13 @@ async function quizEnsureChat(mode) {
     }
     if (tab) throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
   }
-  const window = await chrome.windows.create({ url: chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/', type: 'normal', state: 'minimized', focused: false });
+  const window = await quizCreateBackgroundWindow({ url: chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/' });
   if (!Number.isInteger(window?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
   mode.chatWindowId = window.id;
   mode.chatTabId = null;
   mode.chatRevealed = false;
   await quizSave(mode);
-  await chrome.windows.update(window.id, { state: 'minimized', focused: false });
+  await chrome.windows.update(window.id, { state: 'minimized' });
   const tab = window.tabs?.[0] || (await chrome.tabs.query({ windowId: window.id }))[0];
   if (!Number.isInteger(tab?.id)) throw new Error('Chưa tìm thấy tab trong cửa sổ ChatGPT nền. Bấm thử lại.');
   mode.chatTabId = tab.id;
