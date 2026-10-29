@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let chatReady = false;
   let autoAnalyzeEnabled = false;
   let quizMode = null;
+  let quizStateSequence = 0;
   let activeTab = null;
   let tabInfoSequence = 0;
   let pageRevision = 0;
@@ -373,10 +374,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!result?.success) toast(result?.error || 'Dùng nút X ở thanh tiêu đề trình duyệt để đóng sidebar.');
   });
   function applyQuizState(next) {
+    quizStateSequence++;
+    const changedSource = quizMode?.enabled !== next?.enabled || quizMode?.tabId !== next?.tabId;
     quizMode = next;
     $('setting-quiz-mode').checked = next?.enabled === true;
-    invalidateAutomaticPage();
-    scheduleAutomaticAnalysis();
+    $('quiz-mode-status').textContent = next?.enabled ? next.status || 'Đang chờ câu hỏi…' : 'Đáp án tự động đang tắt.';
+    $('quiz-mode-actions').hidden = !next?.enabled;
+    $('btn-quiz-retry').hidden = !next?.error;
+    $('btn-quiz-retry').textContent = next?.retryLabel || 'Thử lại câu thiếu';
+    if (changedSource) { invalidateAutomaticPage(); scheduleAutomaticAnalysis(); }
+  }
+  async function refreshQuizState() {
+    const sequence = ++quizStateSequence;
+    const result = await send({ type: 'QUIZ_GET_STATE' });
+    if (result?.success && sequence === quizStateSequence) applyQuizState(result.state);
+  }
+  for (const [id, type] of [['btn-quiz-open-chat', 'QUIZ_OPEN_CHAT'], ['btn-quiz-retry', 'QUIZ_RETRY']]) {
+    $(id).addEventListener('click', async () => {
+      const button = $(id); button.disabled = true;
+      try {
+        const result = await send({ type });
+        if (!result?.success) throw new Error(result?.error || 'Chế độ đáp án đã dừng. Bật lại để tiếp tục.');
+        await refreshQuizState();
+      } catch (error) { toast(error.message); }
+      finally { button.disabled = false; }
+    });
   }
   function applyReference(reference) {
     $('setting-quiz-reference').checked = reference?.enabled === true;
@@ -470,8 +492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'session' && changes[`quizSession:${windowId}`]) {
-        const next = changes[`quizSession:${windowId}`].newValue;
-        if (quizMode?.enabled !== next?.enabled || quizMode?.tabId !== next?.tabId) applyQuizState(next);
+        refreshQuizState().catch(() => {});
       }
       if (area !== 'local') return;
       receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));

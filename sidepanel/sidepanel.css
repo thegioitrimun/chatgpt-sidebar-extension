@@ -831,6 +831,8 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-g
 .reference-note { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .reference-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 14px; }
 .reference-actions a { color: var(--accent-green); font-size: 12px; }
+.quiz-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.quiz-actions[hidden], .quiz-actions button[hidden] { display: none; }
 .switch { position: relative; display: inline-flex; width: 38px; height: 22px; flex-shrink: 0; margin-top: 1px; }
 .switch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 1; }
 .switch-track { width: 100%; height: 100%; border-radius: 20px; background: #b9c7c0; transition: background .16s ease; }

@@ -297,10 +297,15 @@
       </label>
       <p id="auto-analyze-note" class="settings-note">Khi bật, trang hiện tại cũng được gửi tới ChatGPT. Chỉ hoạt động khi sidebar mở; chờ nếu AI đang trả lời hoặc ô chat có bản nháp.</p>
       <label class="settings-toggle-row" for="setting-quiz-mode">
-        <span class="settings-copy"><strong>Đáp án tự động · Vinmec</strong><span>Tự gửi câu hỏi tới tab ChatGPT nền và hiển thị đáp án ở giữa cạnh dưới trang. Tiếp tục khi đóng sidebar.</span></span>
+        <span class="settings-copy"><strong>Đáp án tự động · Vinmec</strong><span>ChatGPT chạy trong cửa sổ riêng tự thu nhỏ, đáp án hiện ở giữa cạnh dưới trang. Tiếp tục khi đóng sidebar.</span></span>
         <span class="switch"><input id="setting-quiz-mode" type="checkbox" role="switch" aria-describedby="quiz-shortcut"><span class="switch-track" aria-hidden="true"></span></span>
       </label>
       <p id="quiz-shortcut" class="settings-note">Shift + Option + Q: bật/tắt trên tab đề Vinmec.</p>
+      <p id="quiz-mode-status" class="reference-note" role="status" aria-live="polite"></p>
+      <div id="quiz-mode-actions" class="quiz-actions" hidden>
+        <button id="btn-quiz-open-chat" class="btn-secondary" type="button">Mở ChatGPT</button>
+        <button id="btn-quiz-retry" class="btn-secondary" type="button" hidden>Thử lại câu thiếu</button>
+      </div>
       <section class="reference-settings" aria-labelledby="reference-title">
         <label class="settings-toggle-row" for="setting-quiz-reference">
           <span class="settings-copy"><strong id="reference-title">Tài liệu tham khảo</strong><span>Đối chiếu đáp án với PDF đã đính kèm trong một cuộc chat ChatGPT riêng.</span></span>
