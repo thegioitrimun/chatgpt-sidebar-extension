@@ -1,7 +1,7 @@
 // The worker owns the queue; neither the side panel nor an open UI is required.
 const quizKey = windowId => `quizSession:${windowId}`;
 const quizQueues = new Map();
-const quizChatBridgeVersion = 3;
+const quizChatBridgeVersion = 4;
 const quizReferenceKey = 'quizReference';
 const quizHost = url => { try { return new URL(url).origin === 'https://elearning.vinmec.com'; } catch { return false; } };
 const chatHost = url => { try { return ['https://chatgpt.com', 'https://chat.openai.com'].includes(new URL(url).origin); } catch { return false; } };
@@ -119,16 +119,9 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
   });
 }
 
-function quizCreateBackgroundWindow(content) {
-  // Brave/macOS can inherit the active fullscreen Space even when a normal
-  // window requests minimized/unfocused. An explicitly sized, inactive popup
-  // avoids that transition; the caller journals it, then minimizes before work.
-  return chrome.windows.create({ ...content, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
-}
-
 async function quizEnsureChat(mode) {
-  // Recover a window journaled just before the worker stopped, without opening
-  // another one. Only adopt the single ChatGPT tab in our recorded window.
+  // Read a previously sent turn in an old owned window before migrating. READ
+  // does not write/focus its editor, and preserves uncertain-send recovery.
   if (!mode.chatTabId && mode.chatWindowId) {
     const window = await chrome.windows.get(mode.chatWindowId, { populate: true }).catch(() => null);
     if (window?.tabs?.length === 1 && chatHost(window.tabs[0].pendingUrl || window.tabs[0].url) && quizConversationMatches(mode, window.tabs[0].pendingUrl || window.tabs[0].url)) {
@@ -137,50 +130,38 @@ async function quizEnsureChat(mode) {
     }
   }
   if (mode.chatTabId) {
-    let tab = await chrome.tabs.get(mode.chatTabId).catch(() => null);
+    const tab = await chrome.tabs.get(mode.chatTabId).catch(() => null);
     if (tab && chatHost(tab.pendingUrl || tab.url)) {
       if (!quizConversationMatches(mode, tab.pendingUrl || tab.url)) throw new Error('Tab ChatGPT đã rời cuộc chat chứa PDF. Mở lại đúng cuộc chat tài liệu rồi bấm thử lại.');
-      const window = await chrome.windows.get(tab.windowId, { populate: true });
-      if (tab.windowId === mode.windowId || window.tabs?.length !== 1 || window.tabs[0].id !== tab.id) {
-        // Migrate our legacy background tab, or detach it if the user moved it
-        // into a shared window. Never minimize a window containing other tabs.
-        const ownWindow = await quizCreateBackgroundWindow({ tabId: tab.id });
-        if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
-        mode.chatWindowId = ownWindow.id;
-        mode.chatRevealed = false;
-        await quizSave(mode);
-        // Enforce state only: focused:false would bring the next window in the
-        // z-order forward. Creation can also return before state has settled.
-        await chrome.windows.update(ownWindow.id, { state: 'minimized' });
-        tab = await chrome.tabs.get(tab.id);
-      } else {
-        mode.chatWindowId = window.id;
-        await quizSave(mode);
-        if (!mode.chatRevealed && window.state !== 'minimized') await chrome.windows.update(window.id, { state: 'minimized' });
+      if (tab.windowId === mode.windowId || mode.job?.mayHaveSent) {
+        await chrome.tabs.update(tab.id, { autoDiscardable: false });
+        // Never reload a legacy window to recover a pending answer: its old
+        // bridge already supports READ, and reloading can run page autofocus.
+        if (tab.windowId === mode.windowId && mode.chatBridgeVersion !== quizChatBridgeVersion) {
+          // Reload only our own tab once after a reader upgrade. An already open
+          // ChatGPT tab otherwise keeps the previous content script indefinitely.
+          mode.chatBridgeVersion = quizChatBridgeVersion;
+          await quizSave(mode);
+          await chrome.tabs.reload(tab.id);
+          return { ...tab, status: 'loading' };
+        }
+        return tab;
       }
-      await chrome.tabs.update(tab.id, { autoDiscardable: false });
-      if (mode.chatBridgeVersion !== quizChatBridgeVersion) {
-        // Reload only our own tab once after a reader upgrade. An already open
-        // ChatGPT tab otherwise keeps the previous content script indefinitely.
-        mode.chatBridgeVersion = quizChatBridgeVersion;
-        await quizSave(mode);
-        await chrome.tabs.reload(tab.id);
-        return { ...tab, status: 'loading' };
-      }
-      return tab;
+      // Leave the old window alone. New sends use an inactive tab in the source
+      // window; never create, move, restore or focus a window from the shortcut.
+      if (!mode.reference?.enabled) mode.conversationUrl = sidebarQuiz.conversationUrl(tab.url) || mode.conversationUrl;
+      if (mode.job) await chrome.tabs.sendMessage(tab.id, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
+      await quizRestoreDiscard(mode);
+    } else if (tab) {
+      throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
     }
-    if (tab) throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
   }
-  const window = await quizCreateBackgroundWindow({ url: chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/' });
-  if (!Number.isInteger(window?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
-  mode.chatWindowId = window.id;
-  mode.chatTabId = null;
+  const tab = await chrome.tabs.create({ windowId: mode.windowId, url: chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/', active: false });
+  if (!Number.isInteger(tab?.id)) throw new Error('Chưa tạo được tab ChatGPT nền. Bấm thử lại.');
+  mode.chatWindowId = tab.windowId;
+  mode.chatTabId = tab.id;
   mode.chatRevealed = false;
   await quizSave(mode);
-  await chrome.windows.update(window.id, { state: 'minimized' });
-  const tab = window.tabs?.[0] || (await chrome.tabs.query({ windowId: window.id }))[0];
-  if (!Number.isInteger(tab?.id)) throw new Error('Chưa tìm thấy tab trong cửa sổ ChatGPT nền. Bấm thử lại.');
-  mode.chatTabId = tab.id;
   mode.chatBridgeVersion = quizChatBridgeVersion;
   await chrome.tabs.update(tab.id, { autoDiscardable: false });
   await quizSave(mode);
@@ -356,7 +337,8 @@ async function handleQuizMessage(message, sender) {
       const tab = existing || await quizEnsureChat(mode);
       mode.chatRevealed = true;
       await quizSave(mode);
-      await chrome.windows.update(tab.windowId, { state: 'normal', focused: true });
+      const window = await chrome.windows.get(tab.windowId);
+      await chrome.windows.update(tab.windowId, { ...(window.state === 'minimized' ? { state: 'normal' } : {}), focused: true });
       await chrome.tabs.update(tab.id, { active: true });
     }
     if (message.type === 'QUIZ_RETRY') {
@@ -386,7 +368,7 @@ chrome.tabs.onRemoved.addListener(async tabId => {
     await quizSerial(value.windowId, async () => {
       const mode = await quizGet(value.windowId);
       if (mode.tabId === tabId) { mode.enabled = false; await quizRestoreDiscard(mode); }
-      else { mode.chatTabId = null; mode.chatWindowId = null; mode.chatRevealed = false; mode.error = 'Cửa sổ ChatGPT nền đã đóng. Bấm thử lại để mở lại và đọc tiếp.'; if (mode.job) mode.job.dispatched = false; }
+      else { mode.chatTabId = null; mode.chatWindowId = null; mode.chatRevealed = false; mode.error = 'Tab ChatGPT nền đã đóng. Bấm thử lại để mở lại và đọc tiếp.'; if (mode.job) mode.job.dispatched = false; }
       await quizSave(mode);
     });
   }

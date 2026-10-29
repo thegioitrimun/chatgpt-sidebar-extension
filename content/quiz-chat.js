@@ -1,4 +1,4 @@
-// Runtime transport for the dedicated normal ChatGPT tab. Never depends on a
+// Runtime transport for the inactive ChatGPT tab. Never depends on a
 // parent frame, side panel DOM, or the worker remaining in memory.
 globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normalizeText, isGenerating, injectPageContext, hasOtherJob }) {
   let current;

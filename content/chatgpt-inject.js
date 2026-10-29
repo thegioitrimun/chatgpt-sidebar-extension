@@ -43,7 +43,22 @@
       input.dispatchEvent(new Event('change', { bubbles: true }));
       return { success: input.value.length > 0 };
     }
-    if (automatic) input.focus({ preventScroll: true });
+    if (automatic) {
+      // Focusing an editor or changing DOM Selection can activate its tab or
+      // restore its window on macOS. ProseMirror observes these DOM mutations;
+      // let its observer update editor state without taking keyboard focus.
+      input.replaceChildren(...text.split('\n\n').map(part => {
+        const paragraph = document.createElement('p');
+        part.split('\n').forEach((line, index) => {
+          if (index) paragraph.append(document.createElement('br'));
+          paragraph.append(document.createTextNode(line));
+        });
+        return paragraph;
+      }));
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: text ? 'insertText' : 'deleteContentBackward', data: text || null }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return { success: !!(input.innerText || input.textContent || '').trim() || text === '', reason: 'BACKGROUND_EDITOR_RESULT' };
+    }
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(input);
