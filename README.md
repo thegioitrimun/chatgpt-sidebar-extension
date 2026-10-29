@@ -6,46 +6,47 @@ Tiện ích Chrome / Brave mở ChatGPT trong thanh bên, đọc trang đang xem
 
 1. Mở `chrome://extensions` (Brave: `brave://extensions`).
 2. Bật **Chế độ nhà phát triển**.
-3. Chọn **Tải tiện ích đã giải nén** và chọn thư mục này. Nếu đã cài, bấm **Tải lại** trên thẻ tiện ích, sau đó đóng và mở lại sidebar. Phím tắt sẽ gắn mã mới vào tab Vinmec, không cần tải lại trang đề. Tab ChatGPT do extension quản lý tự cập nhật bộ đọc khi cần.
+3. Chọn **Tải tiện ích đã giải nén** và chọn thư mục này. Nếu đã cài, bấm **Tải lại** trên thẻ tiện ích, sau đó đóng và mở lại sidebar. Phím tắt sẽ gắn mã mới vào tab web được hỗ trợ, không cần tải lại trang nguồn. Tab ChatGPT do extension quản lý tự cập nhật bộ đọc khi cần.
 4. Bấm biểu tượng tiện ích hoặc **Cmd+Shift+Y** / **Ctrl+Shift+Y**.
 
 Yêu cầu Chrome 116 trở lên hoặc Brave có hỗ trợ Side Panel API. Nếu phím tắt trùng với tiện ích khác, đổi tại `chrome://extensions/shortcuts`.
 
-## Đáp án tự động trên Vinmec (1.7.1)
+## Thư viện tài liệu (1.8.0)
 
-Bản này phát triển từ nền 1.7.0, giữ giao diện sáng và chức năng sidebar. Phần đáp án chạy độc lập với sidebar.
+Mục **Tài liệu** trong sidebar dùng cho nhiều chủ đề, không giới hạn ở bộ ôn thi Da liễu. Không cần API key; extension gửi tệp và câu hỏi tới tài khoản ChatGPT đang đăng nhập trên Brave / Chrome.
 
-1. Mở đề thử trên `https://elearning.vinmec.com/`, nhấn **Shift + Option + Q** trên Mac (**Alt + Shift + Q** trên Windows/Linux), hoặc bật **Cài đặt → Đáp án tự động · Vinmec**. Phím tắt không mở sidebar. Nếu chưa được gán, mở `brave://extensions/shortcuts` và gán cho **Bật/tắt đáp án tự động trên Vinmec**.
-2. Extension đọc câu hỏi và lựa chọn đã hiển thị trên trang, gán A/B/C theo thứ tự, rồi mở **một cửa sổ ChatGPT riêng thu nhỏ, không lấy tiêu điểm**, sử dụng đăng nhập hiện tại. Bạn ở lại cửa sổ nguồn trong lúc gửi và nhận. Mỗi đợt tối đa 5 câu, mục tiêu dưới 16.000 ký tự; câu riêng dài hơn ngưỡng được gửi riêng, không cắt nội dung. Chờ đợt trước xong rồi mới gửi đợt tiếp theo.
-3. Đáp án cập nhật dần **ở giữa cạnh dưới trang**, ví dụ `1A, 2B, 3B-D-E`. Từ bản **1.7.5**, popup chỉ chứa chuỗi đáp án, nền hoàn toàn trong suốt, dùng font và cỡ chữ của câu hỏi đang hiển thị. Chưa có đáp án thì không hiện popup. Tiến độ, lỗi và nút xử lý nằm trong **Cài đặt → Đáp án tự động · Vinmec**. Câu thiếu dữ kiện hoặc có hình/âm thanh chưa đọc được hiện `4?`. Extension chỉ đọc văn bản và lựa chọn, không chọn hay nộp đáp án. Thứ tự và số câu được giữ nguyên; kết quả AI vẫn cần được đối chiếu.
-4. Nhấn lại **Shift + Option + Q** hoặc tắt công tắc trong Cài đặt để ngừng các lượt tiếp theo và ẩn đáp án hoàn toàn. Không có nút **Đáp án** nổi khi tắt. Bật lại sẽ đọc lại lượt đã gửi đang chờ trước khi gửi tiếp. Trạng thái ẩn từ bản 1.7.4 vẫn được giữ khi tải lại trang; phím tắt sẽ hiện lại cùng phiên.
-5. Tab ChatGPT được giữ lại để bạn xem cuộc chat. Bấm **✕ Đóng sidebar** hoặc nút X của trình duyệt để đóng hẳn sidebar; cửa sổ nền vẫn hoạt động. Nút đóng riêng dùng Side Panel API từ Chrome 141; trình duyệt cũ dùng X sẵn có. Mở lại sidebar bằng biểu tượng tiện ích hoặc Cmd+Shift+Y.
+1. Mở **Tài liệu**, nhập tên rồi bấm **Tạo bộ**. Mỗi bộ có danh sách tệp và lịch sử hỏi đáp riêng; có thể đổi tên hoặc xóa bộ.
+2. Bấm **Thêm tài liệu** hoặc kéo thả nhiều tệp **PDF, DOCX, PPTX, TXT**. Mỗi tệp tối đa **50 MiB**, mỗi bộ tối đa **20 tệp**. Tệp trùng nội dung trong cùng bộ không được thêm lần nữa. Danh sách hiển thị dung lượng và trạng thái đang chuẩn bị, đang tải lên ChatGPT, sẵn sàng hoặc lỗi.
+3. Extension lưu bản sao tệp trong IndexedDB của hồ sơ trình duyệt, rồi tải từng tệp lên cuộc chat dành cho phiên bản bộ đó. Chờ trạng thái **Sẵn sàng** để biết các lượt chứa tệp đã được gửi và ChatGPT xác nhận đọc được tài liệu. Giới hạn tải tệp của tài khoản ChatGPT vẫn có thể áp dụng dù tệp nằm trong giới hạn của extension.
+4. Nhập câu hỏi trong **Hỏi tài liệu** rồi bấm **Gửi câu hỏi**. Kết quả nằm trong lịch sử của bộ. Prompt yêu cầu phân biệt **Theo tài liệu** và **ChatGPT bổ sung**, nêu tên tệp, trang hoặc mục khi xác định được; extension không tự kiểm chứng việc trích nguồn hay độ chính xác của AI.
+5. Bấm **Dùng bộ này** để chọn nguồn cho **Phân tích ngay**, **Tự động phân tích** và **Shift + Option + Q**. Phân tích trang xuất hiện trong lịch sử tài liệu; đáp án tự động tiếp tục dùng popup trên trang nguồn. **Ngừng dùng** trở về phân tích không có bộ tài liệu được chọn.
 
-Chế độ gắn với tab Vinmec lúc bật và theo dõi các câu mới khi đổi trang trong tab đó. Câu đã xử lý được ghi nhớ theo số câu, nội dung và thứ tự lựa chọn; đếm ngược, chọn đáp án và tải lại trang không gây gửi lặp. Khi chế độ này bật, phân tích trang thông thường tạm dừng trên tab nguồn.
+Cửa sổ ChatGPT xử lý được mở riêng rồi thu nhỏ trước khi tải trang ChatGPT. Các thao tác tự tải tệp, điền nội dung, gửi và đọc phản hồi không yêu cầu chuyển tiêu điểm. Hàng đợi chạy ở background nên đóng sidebar vẫn tiếp tục; mỗi cuộc chat xử lý một lượt tại một thời điểm, câu hỏi trực tiếp được ưu tiên giữa các đợt phân tích. Chỉ nút **Mở ChatGPT** mới chủ động khôi phục cửa sổ để bạn xử lý đăng nhập, giới hạn tài khoản hoặc bản nháp.
 
-Nếu ChatGPT cần đăng nhập, đang có bản nháp/đang trả lời, trả sai định dạng hoặc tab nền bị đóng, xem trạng thái trong **Cài đặt → Đáp án tự động · Vinmec**. **Mở ChatGPT** trong Cài đặt mới chủ động chuyển sang tab để bạn xử lý. Quay lại đề rồi bấm **Đọc lại ChatGPT** để tiếp tục; thao tác đọc lại không gửi prompt. Sau khi đã đọc lại mà chưa nhận được kết quả, **Thử lại câu thiếu** cho phép gửi lại theo yêu cầu của bạn. Không tự gửi lại lượt chưa rõ đã gửi hay chưa.
+Khi thêm hoặc bỏ tệp, extension tạo **phiên bản tài liệu mới và cuộc chat mới**; các tệp còn lại được đồng bộ vào cuộc chat đó. Lượt đáp án đang chạy giữ nguyên phiên bản nguồn đến khi dừng; lần bật sau dùng bộ đang chọn và phiên bản mới. Lịch sử hỏi đáp vẫn giữ các lượt cũ và ghi rõ nếu thuộc phiên bản trước. Xóa cả bộ sẽ dừng những lượt liên quan.
 
-Bản **1.7.8** mở cửa sổ popup riêng với `focused: false`, kích thước xác định, dùng trang trống rồi thu nhỏ **trước khi tải ChatGPT** để tránh tự focus lúc trang mới tải. Không yêu cầu `focused: false` khi thu nhỏ vì trình duyệt có thể đưa cửa sổ kế tiếp lên. Tab xử lý có sẵn trong cửa sổ nguồn được tách riêng; không thu nhỏ cửa sổ có các tab khác. Thao tác tự điền không gọi `focus()`, đổi DOM Selection hoặc `execCommand`. Chỉ nút **Mở ChatGPT** trong Cài đặt mới chủ động khôi phục và chuyển tiêu điểm theo yêu cầu của bạn.
+Nguồn PDF từ bản 1.7.3 được chuyển thành **bộ đã liên kết** với cuộc chat cũ. Bộ này tiếp tục dùng được nhưng không có bản sao PDF trong kho cục bộ. Muốn quản lý tệp tại đây, chọn lại đầy đủ tài liệu để tạo phiên bản mới; extension không giả lập danh sách hai PDF cũ.
 
-Trạng thái, câu hỏi, hàng đợi và đáp án dùng `chrome.storage.session` để tiếp tục sau khi worker ngủ hoặc sidebar đóng; phiên không tự bật lại sau khi khởi động lại trình duyệt. Nội dung gửi vẫn nằm trong tài khoản ChatGPT. Quyền `alarms` kiểm tra phục hồi kết nối mỗi phút; trình duyệt và tab ChatGPT cần tiếp tục chạy.
+Khi xảy ra lỗi, dùng **Thử lại** hoặc **Đọc lại ChatGPT**. Nếu chưa rõ một lượt đã gửi hay chưa, extension đọc lại hội thoại trước; **Gửi lại lượt chưa có kết quả** chỉ xuất hiện sau lần đọc lại. Không tự gửi lặp một lượt đang chưa rõ trạng thái. Dữ liệu hàng đợi dùng `chrome.storage.session` để phục hồi khi service worker khởi động lại; trình duyệt và cửa sổ ChatGPT cần tiếp tục chạy.
 
-Bản **1.7.2** sửa bộ đọc cho giao diện ChatGPT mới dùng DIL (`data-user-message-bubble` / `data-markdown-text-style`), bên cạnh giao diện cũ. Khắc phục trường hợp AI đã trả lời nhưng popup báo không tìm thấy lượt chat. Chế độ tự chờ khi ChatGPT bận, tự tiếp tục khi sẵn sàng và tự đọc lại lượt đã gửi sau khi kết nối lại; không cần bấm gửi từng đợt. Tab ChatGPT do extension quản lý được tự tải lại một lần khi nâng cấp bộ đọc.
+Tệp, lịch sử và thông tin bộ được lưu trong hồ sơ trình duyệt; bộ đang chọn nằm trong `chrome.storage.local`. Nội dung đã gửi còn nằm trong tài khoản ChatGPT. **Bỏ tệp hoặc xóa bộ trong extension không xóa cuộc chat hay tệp trên ChatGPT**; quản lý các bản đã gửi tại ChatGPT. Nội dung bên trong tài liệu được coi là dữ liệu tham khảo, không phải lệnh điều khiển extension.
 
-### Dùng PDF làm nguồn đáp án (1.7.3)
+## Đáp án tự động trên trang web
 
-1. Tạo một cuộc chat ChatGPT riêng, đính kèm các PDF cần dùng và gửi tin nhắn giới thiệu tài liệu. Giữ cuộc chat trong tài khoản đã đăng nhập trên Brave.
-2. Mở **Cài đặt → Tài liệu tham khảo**, bật công tắc, đặt tên bộ tài liệu và dán địa chỉ cuộc chat dạng `https://chatgpt.com/c/…`, rồi bấm **Lưu nguồn**. Extension lưu địa chỉ riêng trên máy trong `chrome.storage.local`; không lưu hoặc đưa PDF vào mã nguồn.
-3. Tắt rồi bật đáp án bằng **Shift + Option + Q** để áp dụng. Tab ChatGPT nền mở đúng cuộc chat chứa PDF, tất cả các đợt gửi tiếp vào cuộc chat đó. Prompt yêu cầu tra PDF, đối chiếu nội dung từng lựa chọn và gán lại A/B/C theo đề hiện tại; thiếu căn cứ, không đọc được tài liệu hoặc nguồn mâu thuẫn thì trả `?`.
-4. Lưu nguồn mới chỉ áp dụng ở lần bật tiếp theo; lượt đang chạy giữ nguồn cũ đến khi dừng. Mỗi lần **Lưu nguồn** bỏ bộ nhớ đáp án cũ ở lần bật sau, kể cả khi thêm/thay PDF trong cùng cuộc chat. Tắt nguồn PDF và lưu để trở về phân tích thông thường.
+**Shift + Option + Q** trên Mac (**Alt + Shift + Q** trên Windows/Linux) bật/tắt đáp án trên tab web đang mở, không giới hạn ở Vinmec và không tự mở sidebar. Nếu phím tắt chưa được gán hoặc bị trùng, đổi tại `brave://extensions/shortcuts` / `chrome://extensions/shortcuts`.
 
-Tab xử lý không tự chuyển sang cuộc chat khác nếu cuộc chat tài liệu lỗi hoặc bị đổi địa chỉ. Trạng thái trong Cài đặt báo để bạn kiểm tra ChatGPT. Việc đọc PDF do ChatGPT thực hiện; extension không kiểm chứng độc lập nội dung đã được truy xuất và không bảo đảm mọi câu trả lời đều đúng. Câu có hình trên trang đề vẫn được đánh dấu `?` vì extension chưa gửi hình.
+- Extension tìm câu hỏi văn bản cùng các lựa chọn trên trang và trong iframe có quyền truy cập. Gán A/B/C theo thứ tự hiển thị, giữ số câu gốc và nhận biết câu nhiều lựa chọn khi cấu trúc trang cho phép. Trang dùng cấu trúc chưa nhận diện được sẽ báo không tìm thấy câu hỏi; không bảo đảm nhận diện mọi website. Trang hệ thống trình duyệt và các trang bị trình duyệt chặn quyền truy cập không được hỗ trợ.
+- Chế độ theo dõi câu mới khi thay đổi trang trong cùng tab. Mỗi đợt tối đa **5 câu**, mục tiêu dưới **16.000 ký tự**; câu riêng quá ngưỡng được gửi riêng, giữ đầy đủ nội dung. Câu đã xử lý được ghi nhớ theo số câu, nội dung, thứ tự lựa chọn và phiên bản tài liệu để tránh gửi lại do đồng hồ, chọn đáp án hoặc tải lại trang.
+- Đáp án cập nhật ở **giữa cạnh dưới trang**. Popup chỉ chứa chuỗi đáp án, nền hoàn toàn trong suốt, dùng font và cỡ chữ của câu hỏi đang hiển thị; chưa có đáp án thì không hiện. Ví dụ **`3D?, 4F, 5C?, 6B-D?, 7?`**: dấu `?` sau chữ cái là phần ChatGPT bổ sung khi thiếu căn cứ trong bộ tài liệu; `7?` là chưa xác định được đáp án. Dữ kiện ảnh hoặc âm thanh chưa đọc được cũng được đánh dấu `?`.
+- Nhấn lại phím tắt hoặc tắt công tắc **Đáp án tự động** trong Cài đặt để ngừng các lượt tiếp theo và ẩn hoàn toàn đáp án. Không có nút **Đáp án** nổi khi tắt. Bật lại sẽ đọc lại lượt đã gửi đang chờ trước khi gửi tiếp. Tiến độ, lỗi và nút xử lý nằm trong Cài đặt hoặc mục Tài liệu nếu đang dùng bộ tài liệu.
+- Extension chỉ đọc nội dung; việc chọn và nộp đáp án do người dùng thực hiện. Khi đáp án tự động bật, phân tích trang thông thường tạm ngưng trên tab nguồn để tránh gửi trùng. Bấm **✕ Đóng sidebar** hoặc nút X của trình duyệt để đóng hẳn sidebar; hàng đợi và popup vẫn hoạt động. Nút đóng riêng dùng Side Panel API từ Chrome 141, trình duyệt cũ dùng X sẵn có.
 
-Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache `_metadata` trong thư mục extension. Nếu cập nhật từ bản cũ có thư mục `_metadata`, chuyển thư mục đó ra ngoài extension rồi bấm **Thử lại** khi tải tiện ích.
+Nếu ChatGPT cần đăng nhập, hết hạn mức, có bản nháp khác, trả sai định dạng hoặc cửa sổ nền bị đóng, xem trạng thái rồi dùng **Mở ChatGPT**, **Đọc lại ChatGPT** hoặc nút thử lại tương ứng. Chế độ không tự bật lại sau khi khởi động lại trình duyệt. Kết quả AI cần được đối chiếu với tài liệu.
 
 ## Dùng nhanh
 
 - Mở trang web, bấm **Đưa vào ô chat**. Tiện ích đọc văn bản hiển thị (tối đa 12.000 ký tự) và đoạn đang chọn, rồi điền lệnh vào ChatGPT. Bạn tự kiểm tra và bấm gửi.
-- Bấm **Phân tích ngay** để lấy nội dung trang (hoặc đoạn đang chọn), đưa vào ô chat và tự gửi cho ChatGPT phân tích trong sidebar. Nếu ChatGPT đang trả lời hoặc ô chat có bản nháp khác, tiện ích báo để bạn xử lý rồi bấm lại. Thao tác này không tự gửi lại khi tải lại sidebar.
+- Bấm **Phân tích ngay** để lấy nội dung trang (hoặc đoạn đang chọn) và tự gửi cho ChatGPT. Nếu đã chọn bộ tài liệu, kết quả nằm trong lịch sử của bộ; nếu chưa chọn bộ, phân tích dùng ChatGPT trong sidebar. Nếu ChatGPT đang trả lời hoặc ô chat có bản nháp khác, tiện ích báo để bạn xử lý rồi bấm lại. Thao tác này không tự gửi lại khi tải lại sidebar.
 - Giao diện tiện ích và ChatGPT nhúng dùng **light mode**. Bấm biểu tượng bánh răng **Cài đặt** → bật **Tự động phân tích** để tự lấy nội dung và gửi phân tích khi chuyển tab, đổi địa chỉ (kể cả trang không tải lại toàn bộ) hoặc tải lại trang. Cài đặt được lưu, mặc định tắt. Khi bật sẽ phân tích luôn trang hiện tại; chỉ hoạt động khi sidebar đang mở. Tiện ích chờ trang tải xong và ô chat trống, chờ lượt trả lời/phân tích form kết thúc, rồi chỉ xử lý trang mới nhất. Không tự phân tích tab ChatGPT, trang hệ thống hay Chrome Web Store. Có thể tắt công tắc để hủy yêu cầu đang chờ; nội dung đã gửi vẫn ở trong cuộc chat.
 - Bấm biểu tượng tia sét để chọn **Tóm tắt trang** hoặc mẫu lệnh dịch, sửa văn bản, giải thích, soạn email.
 - Bôi đen văn bản → chuột phải → chọn tác vụ ChatGPT. Lệnh được giữ trong bộ nhớ đến khi điền thành công, kể cả khi sidebar chưa mở.
@@ -61,7 +62,7 @@ Không đọc được trang hệ thống trình duyệt, Chrome Web Store hoặ
 
 ## Quyền truy cập
 
-Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật tự động phân tích, quản lý tab ChatGPT, sao chép lệnh, lưu lệnh chờ và tạo menu chuột phải. Chế độ tự động lưu dấu trang đã xử lý trong bộ nhớ phiên để tránh gửi lặp khi mở lại sidebar; không tự sao chép đè clipboard. Chỉ khung nhúng ChatGPT được xử lý các header chặn iframe; tab đăng nhập và các tài nguyên khác giữ header của website.
+Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật chế độ tự động, quản lý cửa sổ/tab ChatGPT, sao chép lệnh, lưu tệp và lệnh chờ, tạo menu chuột phải. Chế độ tự động lưu dấu trang đã xử lý trong bộ nhớ phiên để tránh gửi lặp khi mở lại sidebar; không tự sao chép đè clipboard. Chỉ khung nhúng ChatGPT được xử lý các header chặn iframe; tab đăng nhập và các tài nguyên khác giữ header của website.
 
 ## Kiểm tra mã
 
@@ -69,10 +70,12 @@ Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật
 node --check background.js
 node --check content/chatgpt-inject.js
 node --check sidepanel/sidepanel.js
-node --test tests/quiz.test.cjs tests/chatgpt-background.test.cjs
+node --test tests/quiz.test.cjs tests/chatgpt-background.test.cjs tests/documents.test.cjs
 ```
 
 Không cần cài dependencies hay chạy build. Mã JavaScript và tài nguyên được tải trực tiếp bởi trình duyệt.
+
+Các bộ kiểm tra DOM dùng Playwright và một hồ sơ trình duyệt thử nghiệm riêng. Có thể đặt `PLAYWRIGHT_MODULE` thành đường dẫn module và `BROWSER_EXECUTABLE_PATH` thành đường dẫn Chromium/Brave, rồi chạy `node --test tests/*.test.cjs`. Nếu không tìm thấy Playwright thì các ca cần trình duyệt được bỏ qua; các ca hàng đợi và phục hồi vẫn chạy bằng Node.
 
 Mở `tests/quiz-chat-dom.html` trong trình duyệt để kiểm tra 8 tình huống bộ đọc trên cả hai kiểu giao diện ChatGPT. Kết quả mong đợi là `8 passed`; fixture chỉ chứa dữ liệu mẫu, không gửi tới AI.
 

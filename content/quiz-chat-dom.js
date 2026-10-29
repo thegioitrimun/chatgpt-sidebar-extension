@@ -3,13 +3,13 @@
 (() => {
   const selector = '[data-message-author-role="user"], [data-user-message-bubble], [data-message-author-role="assistant"], [data-markdown-text-style="assistant-message"]';
   const role = node => node.matches('[data-message-author-role="user"], [data-user-message-bubble]') ? 'user' : 'assistant';
-  function readReply(document, jobId) {
+  function readReply(document, jobId, prefix = 'QUIZ_JOB') {
     const candidates = [...document.querySelectorAll(selector)];
     // New renderers can sit inside an older role wrapper. Read each message once.
     const messages = candidates.filter(node => !candidates.some(parent => parent !== node && parent.contains(node) && role(parent) === role(node)));
     let index = -1;
     for (let cursor = 0; cursor < messages.length; cursor++) {
-      if (role(messages[cursor]) === 'user' && messages[cursor].textContent.includes(`QUIZ_JOB:${jobId}`)) index = cursor;
+      if (role(messages[cursor]) === 'user' && messages[cursor].textContent.includes(`${prefix}:${jobId}`)) index = cursor;
     }
     if (index < 0) return { found: false };
     let reply;

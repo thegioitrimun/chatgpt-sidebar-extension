@@ -108,6 +108,7 @@
   const readers = new Map();
   const pageContextRequests = new Map();
   let quizBridge = null;
+  let documentBridge = null;
   const sleep = (duration) => new Promise(resolve => setTimeout(resolve, duration));
   let pageSendInProgress = false;
   const normalizeText = value => (value || '').replace(/\s+/g, ' ').trim();
@@ -115,7 +116,7 @@
   const isGenerating = () => !!document.querySelector('button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Dừng tạo"], button[aria-label="Dừng tạo câu trả lời"]');
 
   async function injectPageContext(text, autoSend, state = {}) {
-    if (quizBridge?.isBusy(state)) return { success: false, error: 'ChatGPT đang xử lý câu hỏi. Chờ xong hoặc dừng chế độ đáp án.' };
+    if (quizBridge?.isBusy(state) || documentBridge?.isBusy(state)) return { success: false, error: 'ChatGPT đang xử lý câu hỏi. Chờ xong hoặc dừng chế độ đáp án.' };
     if (pageSendInProgress) return { success: false, error: 'Đang gửi yêu cầu phân tích. Vui lòng chờ.' };
     if (!autoSend) return insertText(text);
     pageSendInProgress = true;
@@ -134,7 +135,7 @@
         throw new Error('Chưa điền đủ nội dung vào ô chat. Kiểm tra ChatGPT rồi thử lại.');
       }
       inserted = true;
-      for (let attempt = 0; attempt < 30; attempt++) {
+      for (let attempt = 0; attempt < Math.ceil((state.sendWait || 6000) / 200); attempt++) {
         if (state.cancelled) {
           // Remove only our unsent draft; preserve anything the user changed.
           if (findInput() === input && normalizeText(inputText(input)) === normalizeText(text)) insertText('', true);
@@ -243,7 +244,7 @@
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type !== 'INJECT_PAGE_CONTEXT' || typeof message.text !== 'string') return;
-    sendResponse(pageSendInProgress || quizBridge?.isBusy() ? { success: false } : insertText(message.text));
+    sendResponse(pageSendInProgress || quizBridge?.isBusy() || documentBridge?.isBusy() ? { success: false } : insertText(message.text));
   });
 
   window.addEventListener('message', (event) => {
@@ -252,7 +253,7 @@
       window.parent.postMessage({
         type: 'SIDEBAR_CHAT_STATE', id: event.data.id,
         ready: !!findInput(), hasDraft: !!normalizeText(inputText(findInput())),
-        busy: pageSendInProgress || isGenerating() || [...formRuns.values()].some(state => !state.finished && !state.cancelled)
+        busy: pageSendInProgress || documentBridge?.isBusy() || isGenerating() || [...formRuns.values()].some(state => !state.finished && !state.cancelled)
       }, extensionOrigin);
       return;
     }
@@ -285,7 +286,7 @@
       const message = event.data;
       if (typeof message.prompt !== 'string' || typeof message.jobId !== 'string' || typeof message.bridgeToken !== 'string' || !Array.isArray(message.fieldIds)) return;
       const acknowledge = success => window.parent.postMessage({ type: 'SIDEBAR_FORM_AI_ACK', jobId: message.jobId, bridgeToken: message.bridgeToken, success }, extensionOrigin);
-      if (!findInput() || pageSendInProgress || quizBridge?.isBusy()) { acknowledge(false); return; }
+      if (!findInput() || pageSendInProgress || quizBridge?.isBusy() || documentBridge?.isBusy()) { acknowledge(false); return; }
       const existing = formRuns.get(message.jobId);
       if (existing && !existing.finished && !existing.cancelled) { acknowledge(existing.bridgeToken === message.bridgeToken); return; }
       const active = [...formRuns.values()].some(state => !state.finished && !state.cancelled);
@@ -307,7 +308,11 @@
   });
 
   if (window.parent === window && globalThis.initializeSidebarQuizChat) {
-    quizBridge = globalThis.initializeSidebarQuizChat({ findInput, inputText, normalizeText, isGenerating, injectPageContext, hasOtherJob: () => pageSendInProgress || [...formRuns.values()].some(state => !state.finished && !state.cancelled) });
+    quizBridge = globalThis.initializeSidebarQuizChat({ findInput, inputText, normalizeText, isGenerating, injectPageContext, hasOtherJob: () => pageSendInProgress || documentBridge?.isBusy() || [...formRuns.values()].some(state => !state.finished && !state.cancelled) });
+  }
+
+  if (window.parent === window && globalThis.initializeSidebarDocumentChat) {
+    documentBridge = globalThis.initializeSidebarDocumentChat({ findInput, inputText, normalizeText, isGenerating, injectPageContext, hasOtherJob: () => pageSendInProgress || quizBridge?.isBusy() || [...formRuns.values()].some(state => !state.finished && !state.cancelled) });
   }
 
   if (window.parent !== window) {

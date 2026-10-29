@@ -27,6 +27,7 @@
 
     <!-- Quick Action Toolbar -->
     <nav class="action-tools">
+      <button id="btn-documents" class="tool-btn" title="Thư viện tài liệu" aria-label="Thư viện tài liệu">▥</button>
       <button id="btn-form-fill" class="tool-btn" title="Điền form bằng AI" aria-label="Điền form bằng AI">▤</button>
 
       <button id="btn-prompts" class="tool-btn" title="Bộ công cụ Prompt nhanh">
@@ -297,35 +298,53 @@
       </label>
       <p id="auto-analyze-note" class="settings-note">Khi bật, trang hiện tại cũng được gửi tới ChatGPT. Chỉ hoạt động khi sidebar mở; chờ nếu AI đang trả lời hoặc ô chat có bản nháp.</p>
       <label class="settings-toggle-row" for="setting-quiz-mode">
-        <span class="settings-copy"><strong>Đáp án tự động · Vinmec</strong><span>ChatGPT chạy trong cửa sổ riêng thu nhỏ, không tự chuyển tiêu điểm. Đáp án hiện ở giữa cạnh dưới trang, tiếp tục khi đóng sidebar.</span></span>
+        <span class="settings-copy"><strong>Đáp án tự động · Trang web</strong><span>ChatGPT chạy trong cửa sổ riêng thu nhỏ, không tự chuyển tiêu điểm. Đáp án hiện ở giữa cạnh dưới trang, tiếp tục khi đóng sidebar.</span></span>
         <span class="switch"><input id="setting-quiz-mode" type="checkbox" role="switch" aria-describedby="quiz-shortcut"><span class="switch-track" aria-hidden="true"></span></span>
       </label>
-      <p id="quiz-shortcut" class="settings-note">Shift + Option + Q: bật/tắt trên tab đề Vinmec.</p>
+      <p id="quiz-shortcut" class="settings-note">Shift + Option + Q: bật/tắt trên trang web đang mở.</p>
       <p id="quiz-mode-status" class="reference-note" role="status" aria-live="polite"></p>
       <div id="quiz-mode-actions" class="quiz-actions" hidden>
         <button id="btn-quiz-open-chat" class="btn-secondary" type="button">Mở ChatGPT</button>
         <button id="btn-quiz-retry" class="btn-secondary" type="button" hidden>Thử lại câu thiếu</button>
       </div>
       <section class="reference-settings" aria-labelledby="reference-title">
-        <label class="settings-toggle-row" for="setting-quiz-reference">
-          <span class="settings-copy"><strong id="reference-title">Tài liệu tham khảo</strong><span>Đối chiếu đáp án với PDF đã đính kèm trong một cuộc chat ChatGPT riêng.</span></span>
-          <span class="switch"><input id="setting-quiz-reference" type="checkbox" role="switch" aria-describedby="reference-note"><span class="switch-track" aria-hidden="true"></span></span>
-        </label>
-        <label class="reference-label" for="reference-name">Tên bộ tài liệu</label>
-        <input id="reference-name" class="reference-input" type="text" maxlength="120" placeholder="Ví dụ: Ôn thi da liễu" autocomplete="off">
-        <label class="reference-label" for="reference-url">Địa chỉ cuộc chat chứa PDF</label>
-        <input id="reference-url" class="reference-input" type="url" placeholder="https://chatgpt.com/c/…" autocomplete="off" spellcheck="false" aria-describedby="reference-note">
-        <p id="reference-note" class="reference-note">Đính kèm tài liệu và gửi một tin nhắn trong ChatGPT, rồi dán địa chỉ cuộc chat ở đây. Áp dụng từ lần bật đáp án tiếp theo. Lưu lại sau khi thay tài liệu để bỏ kết quả cũ.</p>
-        <div class="reference-actions"><button id="btn-save-reference" class="btn-primary" type="button">Lưu nguồn</button><a id="reference-open" target="_blank" rel="noopener noreferrer" hidden>Mở cuộc chat</a></div>
-        <p id="reference-status" class="reference-note" role="status" aria-live="polite"></p>
+        <h3 id="reference-title">Thư viện tài liệu</h3>
+        <p id="reference-status" class="reference-note">Chưa chọn bộ tài liệu.</p>
+        <p class="reference-note">Chọn bộ để dùng khi hỏi, phân tích trang và bật đáp án. Dấu ? sau đáp án là phần ChatGPT bổ sung khi chưa tìm thấy căn cứ trong tài liệu.</p>
+        <button id="btn-manage-documents" class="btn-secondary" type="button">Quản lý tài liệu</button>
       </section>
     </div>
     <div class="modal-footer"><button id="btn-done-settings" class="btn-primary">Xong</button></div>
   </dialog>
 
+  <section id="documents-panel" class="documents-panel" aria-label="Thư viện tài liệu" hidden>
+    <div class="documents-heading"><div><h2>Tài liệu</h2><p>Nguồn riêng cho câu hỏi của bạn</p></div><button id="doc-close" class="tool-btn" aria-label="Quay lại chat">✕</button></div>
+    <form id="doc-create-form" class="doc-create"><input id="doc-create-name" class="reference-input" maxlength="120" placeholder="Tên bộ tài liệu mới" aria-label="Tên bộ tài liệu mới" required><button class="btn-secondary" type="submit">Tạo bộ</button></form>
+    <label class="reference-label" for="doc-collection">Bộ tài liệu</label>
+    <select id="doc-collection" class="reference-input"></select>
+    <div id="doc-details" hidden>
+      <div class="doc-name-row"><input id="doc-name" class="reference-input" maxlength="120" aria-label="Tên bộ đang xem"><button id="doc-rename" class="btn-secondary" type="button">Đổi tên</button><button id="doc-delete" class="doc-text-button" type="button">Xóa bộ</button></div>
+      <div class="doc-use-row"><button id="doc-use" class="btn-primary" type="button">Dùng bộ này</button><button id="doc-disable" class="doc-text-button" type="button" hidden>Ngừng dùng</button><span id="doc-active-label"></span></div>
+      <p id="doc-legacy" class="reference-note" hidden>Bộ đã liên kết với cuộc chat cũ; chưa có bản sao tệp trong thư viện. Chọn lại đầy đủ các tệp để tạo phiên bản được quản lý tại đây.</p>
+      <label id="doc-drop" class="doc-drop" for="doc-files" tabindex="0"><strong>＋ Thêm tài liệu</strong><span>Chọn tệp hoặc kéo thả vào đây</span><small>PDF · DOCX · PPTX · TXT — 50 MiB/tệp, 20 tệp/bộ</small><input id="doc-files" type="file" accept=".pdf,.docx,.pptx,.txt" multiple hidden></label>
+      <p class="doc-disclosure">Tệp được lưu trên máy và gửi tới ChatGPT đã đăng nhập để hỏi đáp. Xóa ở đây không xóa cuộc chat trên ChatGPT.</p>
+      <ul id="doc-file-list" class="doc-file-list" aria-label="Các tài liệu"></ul>
+      <p id="doc-status" class="doc-status" role="status" aria-live="polite"></p>
+      <div class="doc-runtime-actions"><button id="doc-open-chat" class="btn-secondary" type="button" hidden>Mở ChatGPT</button><button id="doc-retry" class="btn-secondary" type="button" hidden>Thử lại</button><button id="doc-resend" class="btn-secondary" type="button" hidden>Gửi lại lượt chưa có kết quả</button></div>
+      <div class="doc-chat-heading"><h3>Hỏi tài liệu</h3><span>Có thể dùng kiến thức bổ sung; nguồn sẽ được phân biệt.</span></div>
+      <div id="doc-history" class="doc-history" aria-label="Lịch sử hỏi đáp"></div>
+      <form id="doc-ask-form" class="doc-ask-form"><textarea id="doc-question" maxlength="40000" rows="3" placeholder="Đặt câu hỏi về bộ tài liệu này…" aria-label="Câu hỏi về tài liệu" required></textarea><button id="doc-ask" class="btn-primary" type="submit">Gửi câu hỏi</button></form>
+    </div>
+    <p id="doc-empty" class="doc-empty">Tạo bộ đầu tiên, thêm tài liệu rồi bắt đầu hỏi.</p>
+    <p id="doc-feedback" class="doc-status" role="status" aria-live="polite"></p>
+  </section>
+  <dialog id="doc-confirm" class="settings-modal"><div class="settings-body"><h3 id="doc-confirm-title"></h3><p id="doc-confirm-text" class="reference-note"></p><div class="reference-actions"><button id="doc-confirm-cancel" class="btn-secondary" type="button">Giữ lại</button><button id="doc-confirm-ok" class="btn-primary" type="button">Xóa</button></div></div></dialog>
+
   <!-- Toast Notification -->
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
+  <script src="../document-store.js"></script>
+  <script src="documents.js"></script>
   <script src="sidepanel.js"></script>
   <script src="form-fill.js"></script>
 </body>

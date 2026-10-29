@@ -13,7 +13,7 @@
       const style = getComputedStyle(element);
       return element.textContent.trim() && element.getClientRects().length && style.visibility !== 'hidden';
     });
-    let questions = visible('.qtext, .question-text, .question-title, .content-question');
+    let questions = visible('.qtext, .question-text, .question-title, .content-question, [data-question-text], legend');
     if (!questions.length) questions = visible('.question-content');
     const question = questions.find(element => {
       const bounds = element.getBoundingClientRect();

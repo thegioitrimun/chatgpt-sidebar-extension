@@ -72,6 +72,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
   function ready() {
     clearTimeout(readyTimer);
     readyTimer = setTimeout(() => {
+      if (!chrome.runtime?.id) return;
       const nowReady = !!findInput() && !normalizeText(inputText(findInput())) && !isGenerating() && !hasOtherJob() && (!current || current.finished || current.cancelled);
       if (nowReady && !wasReady) chrome.runtime.sendMessage({ type: 'QUIZ_CHAT_READY' }).catch(() => {});
       wasReady = nowReady;

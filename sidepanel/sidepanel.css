@@ -844,3 +844,35 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-g
 .switch input:disabled + .switch-track { opacity: .6; }
 @media (max-width: 480px) { .status-indicator { display: none; } .top-bar { padding-inline: 8px; } .action-tools { gap: 2px; } .tool-btn { width: 28px; flex-shrink: 0; } }
 @media (max-width: 360px) { .brand-logo { display: none; } .brand-title { font-size: 12px; } .top-bar { gap: 4px; } .action-tools { flex: 1; justify-content: flex-end; } .tool-btn { width: 26px; } }
+
+.documents-panel { position: fixed; inset: 48px 0 0; z-index: 65; overflow-y: auto; background: var(--bg-primary); padding: 18px; user-select: text; }
+.documents-panel[hidden], .documents-panel [hidden] { display: none !important; }
+.documents-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.documents-heading h2 { font-size: 20px; font-weight: 650; margin: 0 0 5px; }
+.documents-heading p { font-size: 12px; color: var(--text-muted); margin: 0; }
+.doc-create, .doc-name-row { display: flex; align-items: center; gap: 8px; }
+.doc-create input, .doc-name-row input { min-width: 0; flex: 1; }
+.doc-create button, .doc-name-row button { flex-shrink: 0; white-space: nowrap; }
+.doc-name-row { flex-wrap: wrap; margin-top: 10px; }
+.doc-name-row input { flex-basis: 55%; }
+.doc-use-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+#doc-active-label { font-size: 11px; color: var(--accent-green); width: 100%; }
+.doc-text-button { border: 0; padding: 5px 0; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 12px; }
+.doc-text-button:hover { color: var(--text-primary); text-decoration: underline; }
+.doc-drop { display: flex; flex-direction: column; align-items: center; gap: 7px; border: 1px dashed #a7c9ba; border-radius: 8px; padding: 21px 12px; cursor: pointer; text-align: center; background: #f7fbf9; }
+.doc-drop strong { font-size: 13px; color: #247158; }.doc-drop span { font-size: 12px; color: var(--text-secondary); }.doc-drop small { font-size: 10px; color: var(--text-muted); }
+.doc-drop.dragging { border-color: var(--accent-green); background: #eaf6ef; }
+.doc-drop:focus-visible, .doc-text-button:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 3px; }
+.doc-disclosure { font-size: 10px; line-height: 1.6; color: var(--text-muted); margin: 8px 0 14px; }
+.doc-file-list { list-style: none; padding: 0; margin: 0; }
+.doc-file-list li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+.doc-file-list li > div { min-width: 0; flex: 1; }.doc-file-list strong { display: block; font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }.doc-file-list span { display: block; font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.5; overflow-wrap: anywhere; }
+.doc-status { font-size: 12px; line-height: 1.6; color: #247158; white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0; }.doc-error, .doc-file-list span.doc-error { color: #a54128; }
+.doc-runtime-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-chat-heading { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border-subtle); }.doc-chat-heading h3 { font-size: 14px; margin: 0 0 6px; }.doc-chat-heading span { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.doc-history { max-height: 45vh; overflow-y: auto; margin: 16px 0; }
+.doc-message { padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }.doc-message-user { background: #f7faf8; padding: 12px; border-radius: 6px; border: none; }.doc-message-label { font-size: 10px; color: var(--text-muted); font-weight: 600; }.doc-message p { font-size: 13px; line-height: 1.7; margin: 7px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-ask-form textarea { box-sizing: border-box; width: 100%; min-height: 80px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 12px; resize: vertical; background: white; font: inherit; font-size: 13px; color: var(--text-primary); }.doc-ask-form button { display: block; width: 100%; margin: 8px 0 16px; }
+.doc-empty { color: var(--text-muted); text-align: center; font-size: 13px; line-height: 1.8; margin: 36px 12px; }
+#btn-documents[data-unread] { position: relative; }#btn-documents[data-unread]::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent-green); }
+@media (max-width: 360px) { .documents-panel { padding: 14px; }.doc-create { gap: 6px; }.doc-create button { padding-inline: 10px; } }

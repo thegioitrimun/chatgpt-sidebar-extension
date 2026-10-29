@@ -58,7 +58,7 @@ function harness(stored = {}, referenceStore = {}) {
     alarms: { onAlarm: event(), create() {} }
   };
   const context = vm.createContext({ chrome, crypto: webcrypto, TextEncoder, Uint8Array, URL, console, setTimeout: () => 0, getActiveTab: async () => source });
-  for (const file of ['quiz-common.js', 'quiz-service.js']) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
+  for (const file of ['quiz-common.js', 'background-chat.js', 'quiz-service.js']) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
   const page = () => ({ id: 'test', tab: source, url: source.url, frameId: 0, documentId: 'doc1' });
   const chat = () => ({ id: 'test', tab: tabs.get(mode()?.chatTabId || 21), url: 'https://chatgpt.com/c/fixture', frameId: 0, documentId: 'chat1' });
   const mode = () => session['quizSession:1'];
@@ -184,7 +184,7 @@ test('PDF mode routes every batch to its source conversation and keeps snapshot 
   assert.equal(h.created[0].url, 'about:blank'); assert.equal(h.chat().tab.url, reference.url); assert.equal(h.created[0].focused, false);
   assert.notEqual(h.mode().chatWindowId, 1); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
   assert.equal(h.mode().job.questions.length, 5); assert(h.mode().job.prompt.includes('NGUỒN TÀI LIỆU'));
-  assert(h.mode().job.prompt.includes('không chép số câu hoặc chữ đáp án'));
+  assert(h.mode().job.prompt.includes('không chép số câu hay chữ đáp án'));
   assert.equal(h.messages.find(m => m.type === 'QUIZ_CHAT_START').referenceUrl, reference.url);
   await h.chatEvent('QUIZ_CHAT_WILL_SEND');
   await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1A, 2B, 3C, 4D, 5E' });
@@ -390,4 +390,17 @@ test('restart between empty-window creation and navigation resumes its journaled
   assert.equal(h.windows.get(1).state, 'normal'); assert.equal(h.windows.get(1).focused, true);
   assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
   assert.equal(h.chat().tab.url, 'https://chatgpt.com/');
+});
+
+
+test('shortcut accepts ordinary web domains and rejects browser internals and ChatGPT transport tabs', async () => {
+  for (const url of ['https://example.org/exam', 'https://lms.example.net/quiz/attempt', 'http://localhost:8080/test']) {
+    const h = harness(); h.source.url = url;
+    await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+    assert.equal(h.mode().enabled, true); assert.equal(h.mode().sourceUrl, url);
+    assert(h.messages.some(message => message.type === 'QUIZ_CHAT_START'));
+  }
+  for (const url of ['chrome://extensions/', 'file:///tmp/exam.html', 'https://chatgpt.com/c/transport', 'https://chromewebstore.google.com/detail/test']) {
+    const h = harness(); h.source.url = url; await assert.rejects(h.context.quizToggle(1, true, h.source), /Mở trang web/);
+  }
 });

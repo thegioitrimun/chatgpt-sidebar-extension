@@ -96,11 +96,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     automaticRunning = true;
     try {
       if (!currentAutomaticJob(job)) return;
-      if (!chatReady || busy || window.sidebarFormAnalysisRunning) {
+      const documentSource = await window.sidebarDocumentLibrary?.hasActive();
+      if ((!documentSource && !chatReady) || busy || window.sidebarFormAnalysisRunning) {
         autoStatus('Tự động phân tích: đang chờ ChatGPT sẵn sàng…');
         return;
       }
-      const state = await requestChatState();
+      const state = documentSource ? { ready: true } : await requestChatState();
       if (!currentAutomaticJob(job)) return;
       if (!state.ready || state.busy || state.hasDraft) {
         autoStatus(state.hasDraft ? 'Tự động phân tích: đang chờ ô chat trống.' : 'Tự động phân tích: đang chờ ChatGPT sẵn sàng…');
@@ -338,7 +339,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             isTruncated ? '(Nội dung được giới hạn ở 12.000 ký tự đầu.)' : ''
           ].filter(Boolean).join('\n\n');
       if (autoSend) button.textContent = 'Đang gửi…';
-      const result = await deliver(prompt, autoSend, !!automatic);
+      const documentResult = autoSend && await window.sidebarDocumentLibrary?.analyze(prompt, !!automatic);
+      const result = documentResult || await deliver(prompt, autoSend, !!automatic);
       if (automatic && result.cancelled && !result.uncertain && lastAutomaticPage === automaticPageKey) {
         lastAutomaticPage = '';
         await chrome.storage.session.remove(`lastAutomaticPage:${windowId}`);
@@ -401,24 +403,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   function applyReference(reference) {
-    $('setting-quiz-reference').checked = reference?.enabled === true;
-    $('reference-name').value = reference?.name || '';
-    $('reference-url').value = reference?.url || '';
-    $('reference-open').hidden = !reference?.url;
-    if (reference?.url) $('reference-open').href = reference.url;
-    else $('reference-open').removeAttribute('href');
-    $('reference-status').textContent = reference?.enabled ? `Đã chọn: ${reference.name || 'PDF trong cuộc chat'}.` : 'Nguồn PDF đang tắt.';
+    $('reference-status').textContent = reference?.enabled ? `Đang dùng: ${reference.name || 'Tài liệu đã chọn'}. Thay bộ áp dụng từ lần bật đáp án tiếp theo.` : 'Chưa chọn bộ tài liệu. Phân tích dùng kiến thức ChatGPT.';
   }
-  $('btn-save-reference').addEventListener('click', async () => {
-    const button = $('btn-save-reference'); button.disabled = true;
-    try {
-      const result = await send({ type: 'QUIZ_SET_REFERENCE', reference: { enabled: $('setting-quiz-reference').checked, name: $('reference-name').value, url: $('reference-url').value, refresh: true } });
-      if (!result?.success) throw new Error(result?.error || 'Không lưu được nguồn tài liệu.');
-      applyReference(result.reference);
-      $('reference-status').textContent = 'Đã lưu. Tắt rồi bật đáp án để áp dụng nguồn mới.';
-    } catch (error) { $('reference-status').textContent = error.message; }
-    finally { button.disabled = false; }
-  });
   $('setting-quiz-mode').addEventListener('change', async () => {
     const input = $('setting-quiz-mode'); input.disabled = true;
     try {
@@ -495,6 +481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshQuizState().catch(() => {});
       }
       if (area !== 'local') return;
+      if (changes.documentLibraryTick || changes.documentActiveCollectionId) { send({ type: 'QUIZ_GET_REFERENCE' }).then(result => applyReference(result?.reference)).catch(() => {}); }
       receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));
       if (changes.autoAnalyzeOnNavigation && (changes.autoAnalyzeOnNavigation.newValue === true) !== autoAnalyzeEnabled) applyAutomaticSetting(changes.autoAnalyzeOnNavigation.newValue);
     });
@@ -507,7 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyQuizState(quiz?.state);
     const reference = await send({ type: 'QUIZ_GET_REFERENCE' });
     applyReference(reference?.reference);
-    $('quiz-shortcut').textContent = quiz?.shortcut ? `${quiz.shortcut}: bật/tắt trên tab đề Vinmec. Đóng sidebar vẫn tiếp tục.` : 'Chưa gán phím tắt. Mở brave://extensions/shortcuts và gán Shift + Option + Q cho “Bật/tắt đáp án tự động trên Vinmec”.';
+    $('quiz-shortcut').textContent = quiz?.shortcut ? `${quiz.shortcut}: bật/tắt trên trang web đang mở. Đóng sidebar vẫn tiếp tục.` : 'Chưa gán phím tắt. Mở brave://extensions/shortcuts và gán Shift + Option + Q cho “Bật/tắt đáp án tự động trên trang web”.';
     applyAutomaticSetting(stored.autoAnalyzeOnNavigation);
     if (stored.hideLoginBanner) $('login-banner').classList.add('hidden');
     updateActiveTabInfo();

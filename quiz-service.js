@@ -1,9 +1,11 @@
 // The worker owns the queue; neither the side panel nor an open UI is required.
 const quizKey = windowId => `quizSession:${windowId}`;
 const quizQueues = new Map();
-const quizChatBridgeVersion = 4;
+const quizChatBridgeVersion = 6;
 const quizReferenceKey = 'quizReference';
-const quizHost = url => { try { return new URL(url).origin === 'https://elearning.vinmec.com'; } catch { return false; } };
+const quizHost = value => {
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !['chatgpt.com', 'chat.openai.com', 'auth.openai.com', 'chromewebstore.google.com'].includes(url.hostname) && !(url.hostname === 'chrome.google.com' && url.pathname.startsWith('/webstore')); } catch { return false; }
+};
 const chatHost = url => { try { return ['https://chatgpt.com', 'https://chat.openai.com'].includes(new URL(url).origin); } catch { return false; } };
 const quizGet = async windowId => (await chrome.storage.session.get(quizKey(windowId)))[quizKey(windowId)];
 
@@ -13,6 +15,7 @@ async function quizChatOwner(tabId) {
 }
 
 async function quizReferenceGet() {
+  if (typeof docReferenceGet === 'function') return docReferenceGet();
   const value = (await chrome.storage.local.get(quizReferenceKey))[quizReferenceKey];
   return { enabled: value?.enabled === true, url: sidebarQuiz.conversationUrl(value?.url), name: typeof value?.name === 'string' ? value.name.slice(0, 120) : '', revision: value?.revision || '' };
 }
@@ -82,17 +85,19 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
       if (!mode) return { success: true, state: { enabled: false } };
       mode.enabled = false;
       await quizSave(mode);
+      if (mode.reference?.provider === 'documents') setTimeout(() => docCancelQuiz(mode).catch(console.error), 0);
       if (mode.job && mode.chatTabId) await chrome.tabs.sendMessage(mode.chatTabId, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
       await quizRestoreDiscard(mode);
       return { success: true, state: quizView(mode) };
     }
     const tab = sourceTab || await getActiveTab(windowId);
-    if (!tab?.id || !quizHost(tab.url)) throw new Error('Mở đề trên elearning.vinmec.com rồi nhấn Shift + Option + Q.');
+    if (!tab?.id || !quizHost(tab.url)) throw new Error('Mở trang web có câu hỏi rồi nhấn Shift + Option + Q. Không dùng được trên trang nội bộ trình duyệt hoặc tab ChatGPT.');
     const sameTab = mode?.tabId === tab.id;
     const reference = await quizReferenceGet();
-    if (reference.enabled && !reference.url) throw new Error('Nguồn PDF chưa có cuộc chat hợp lệ. Kiểm tra Cài đặt → Tài liệu tham khảo.');
+    if (reference.enabled && !reference.url && reference.provider !== 'documents') throw new Error('Nguồn PDF chưa có cuộc chat hợp lệ. Kiểm tra Cài đặt → Tài liệu tham khảo.');
     const changedReference = (mode?.reference?.enabled ? mode.reference.revision : '') !== (reference.enabled ? reference.revision : '');
     if (mode && (!sameTab || changedReference)) {
+      if (mode.reference?.provider === 'documents') { const previous = mode; setTimeout(() => docCancelQuiz(previous).catch(console.error), 0); }
       if (mode.job && mode.chatTabId) await chrome.tabs.sendMessage(mode.chatTabId, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
       await quizRestoreDiscard(mode);
     }
@@ -110,7 +115,7 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
     await quizSave(mode);
     try { await quizAttach(tab.id); }
     catch { mode.error = 'Chưa đọc được trang. Tải lại đề rồi bật lại chế độ.'; await quizSave(mode); }
-    if (mode.chatTabId && !mode.error) {
+    if (mode.reference?.provider !== 'documents' && mode.chatTabId && !mode.error) {
       try { await quizEnsureChat(mode); }
       catch (error) { mode.error = error.message; await quizSave(mode); }
     }
@@ -119,96 +124,21 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
   });
 }
 
-function quizCreateBackgroundWindow(content) {
-  // Brave/macOS can inherit the active fullscreen Space even when a normal
-  // window requests minimized/unfocused. An explicitly sized, inactive popup
-  // avoids that transition; the caller journals it, then minimizes before work.
-  return chrome.windows.create({ ...content, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
-}
-
 async function quizEnsureChat(mode) {
-  // Recover a window journaled just before the worker stopped, without opening
-  // another one. Only adopt the single ChatGPT tab in our recorded window.
-  if (!mode.chatTabId && mode.chatWindowId) {
-    const window = await chrome.windows.get(mode.chatWindowId, { populate: true }).catch(() => null);
-    const tab = window?.tabs?.length === 1 ? window.tabs[0] : null;
-    const url = tab?.pendingUrl || tab?.url;
-    if (tab && ((mode.chatStartUrl && url === 'about:blank') || (chatHost(url) && quizConversationMatches(mode, url)))) {
-      mode.chatTabId = tab.id;
-      await quizSave(mode);
-    }
-  }
-  if (mode.chatTabId) {
-    let tab = await chrome.tabs.get(mode.chatTabId).catch(() => null);
-    const starting = tab && mode.chatStartUrl && (tab.pendingUrl || tab.url) === 'about:blank';
-    if (tab && (starting || chatHost(tab.pendingUrl || tab.url))) {
-      if (!starting && !quizConversationMatches(mode, tab.pendingUrl || tab.url)) throw new Error('Tab ChatGPT đã rời cuộc chat chứa PDF. Mở lại đúng cuộc chat tài liệu rồi bấm thử lại.');
-      const window = await chrome.windows.get(tab.windowId, { populate: true });
-      if (tab.windowId === mode.windowId || window.tabs?.length !== 1 || window.tabs[0].id !== tab.id) {
-        // Migrate our legacy background tab, or detach it if the user moved it
-        // into a shared window. Never minimize a window containing other tabs.
-        const ownWindow = await quizCreateBackgroundWindow({ tabId: tab.id });
-        if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
-        mode.chatWindowId = ownWindow.id;
-        mode.chatRevealed = false;
-        await quizSave(mode);
-        // Enforce state only: focused:false would bring the next window in the
-        // z-order forward. Creation can also return before state has settled.
-        await chrome.windows.update(ownWindow.id, { state: 'minimized' });
-        tab = await chrome.tabs.get(tab.id);
-      } else {
-        mode.chatWindowId = window.id;
-        await quizSave(mode);
-        if (!mode.chatRevealed && window.state !== 'minimized') await chrome.windows.update(window.id, { state: 'minimized' });
-      }
-      await chrome.tabs.update(tab.id, { autoDiscardable: false });
-      if (starting) {
-        mode.chatBridgeVersion = quizChatBridgeVersion;
-        await quizSave(mode);
-        return quizNavigateChat(mode, tab);
-      }
-      mode.chatStartUrl = null;
-      if (mode.chatBridgeVersion !== quizChatBridgeVersion && !mode.job?.mayHaveSent) {
-        // Keep an uncertain sent turn readable without a reload. Before a new
-        // send, upgrade our own tab to the focus-free automatic editor bridge.
-        mode.chatBridgeVersion = quizChatBridgeVersion;
-        await quizSave(mode);
-        await chrome.tabs.reload(tab.id);
-        return { ...tab, status: 'loading' };
-      }
-      return tab;
-    }
-    if (tab) throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
-  }
-  // Load ChatGPT only after the empty window is minimized. Opening the site
-  // directly can run its initial autofocus while the new popup is still visible.
-  const window = await quizCreateBackgroundWindow({ url: 'about:blank' });
-  if (!Number.isInteger(window?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
-  mode.chatWindowId = window.id;
-  mode.chatStartUrl = chatHost(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/';
-  mode.chatTabId = null;
-  mode.chatRevealed = false;
-  await quizSave(mode);
-  await chrome.windows.update(window.id, { state: 'minimized' });
-  const tab = window.tabs?.[0] || (await chrome.tabs.query({ windowId: window.id }))[0];
-  if (!Number.isInteger(tab?.id)) throw new Error('Chưa tìm thấy tab trong cửa sổ ChatGPT nền. Bấm thử lại.');
-  mode.chatTabId = tab.id;
-  mode.chatBridgeVersion = quizChatBridgeVersion;
-  await chrome.tabs.update(tab.id, { autoDiscardable: false });
-  await quizSave(mode);
-  return quizNavigateChat(mode, tab);
-}
-
-async function quizNavigateChat(mode, tab) {
-  const navigated = await chrome.tabs.update(tab.id, { url: mode.chatStartUrl });
-  mode.chatStartUrl = null;
-  await quizSave(mode);
-  return { ...navigated, status: navigated.status || 'loading' };
+  return sidebarBackgroundChat.ensure(mode, quizSave, { matches: url => quizConversationMatches(mode, url), version: quizChatBridgeVersion });
 }
 
 async function quizDispatch(mode, reading = false) {
   if (!mode.enabled || !mode.job) return;
   const job = mode.job;
+  if (mode.reference?.provider === 'documents') {
+    mode.waiting = 'Đang chuẩn bị tài liệu hoặc chờ lượt ChatGPT…';
+    await quizSave(mode);
+    // Do not acquire the document lock while holding the quiz lock: document
+    // acknowledgements acquire the quiz lock to authorize sends and results.
+    setTimeout(() => docEnqueueQuiz(mode).catch(error => docQuizEvent({ kind: 'quiz', id: job.id, quizWindowId: mode.windowId, quizRunId: mode.runId }, 'error', { error: error.message })), 0);
+    return;
+  }
   try {
     const tab = await quizEnsureChat(mode);
     if (tab.status === 'loading') return;
@@ -272,6 +202,7 @@ async function quizSnapshot(message, sender) {
     const merged = new Map();
     for (const frame of Object.values(mode.frames)) for (const question of frame.questions) merged.set(question.id, question);
     mode.questions = [...merged.values()].sort((a, b) => a.number - b.number);
+    mode.waiting = mode.questions.length ? '' : 'Chưa nhận diện được câu hỏi và lựa chọn trên trang này. Đang theo dõi nội dung mới.';
     const numbers = mode.questions.map(question => question.number);
     if (new Set(numbers).size !== numbers.length) mode.error = 'Có câu trùng số nhưng nội dung khác. Kiểm tra trang đề trước khi thử lại.';
     await quizSave(mode);
@@ -339,7 +270,7 @@ async function quizWake(windowId, tabId) {
 async function handleQuizMessage(message, sender) {
   const fromPage = sender.tab && quizHost(sender.url);
   const fromChat = sender.tab && chatHost(sender.url) && sender.frameId === 0;
-  const fromPanel = !sender.tab && sender.url?.startsWith(chrome.runtime.getURL(''));
+  const fromPanel = sender.url?.startsWith(chrome.runtime.getURL('')) && (!chrome.runtime.id || sender.id === chrome.runtime.id);
   if (message.type === 'QUIZ_CHAT_READY' && fromChat) {
     const owner = await quizChatOwner(sender.tab.id);
     if (!owner) return { success: false, stale: true };
@@ -363,6 +294,18 @@ async function handleQuizMessage(message, sender) {
     const mode = await quizGet(windowId);
     if (mode?.tabId === sender.tab.id && mode.runId === message.runId) return quizToggle(windowId, false, undefined, message.runId);
     return { success: false, stale: true };
+  }
+  if (message.type === 'QUIZ_OPEN_CHAT' || message.type === 'QUIZ_RETRY') {
+    const mode = await quizGet(windowId);
+    if (mode?.enabled && mode.reference?.provider === 'documents' && (!fromPage || (mode.tabId === sender.tab.id && mode.runId === message.runId))) {
+      if (message.type === 'QUIZ_OPEN_CHAT') return handleDocumentMessage({ type: 'DOC_OPEN_CHAT', revisionId: mode.reference.revisionId }, { id: chrome.runtime.id, url: chrome.runtime.getURL('sidepanel/sidepanel.html') });
+      const runtime = await docGetRuntime(mode.reference.revisionId);
+      if (runtime?.error && runtime.current && runtime.current.id !== mode.job?.id && runtime.current.kind !== 'upload') throw new Error('Lượt hỏi trong Thư viện tài liệu đang lỗi. Mở Tài liệu và bấm Đọc lại hoặc Thử lại để tiếp tục.');
+      if (runtime?.current && (runtime.current.id === mode.job?.id || runtime.current.kind === 'upload')) await docRetry(runtime.revisionId, runtime.current.sent && runtime.current.readAttempted);
+      await quizSerial(windowId, async () => { const current = await quizGet(windowId); if (current?.runId === mode.runId) { current.error = ''; await quizSave(current); } });
+      await quizWake(windowId);
+      return { success: true, state: quizView(await quizGet(windowId)) };
+    }
   }
   return quizSerial(windowId, async () => {
     const mode = await quizGet(windowId);
@@ -405,7 +348,7 @@ chrome.tabs.onRemoved.addListener(async tabId => {
     if (!key.startsWith('quizSession:') || !value.enabled || (value.tabId !== tabId && value.chatTabId !== tabId)) continue;
     await quizSerial(value.windowId, async () => {
       const mode = await quizGet(value.windowId);
-      if (mode.tabId === tabId) { mode.enabled = false; await quizRestoreDiscard(mode); }
+      if (mode.tabId === tabId) { mode.enabled = false; if (mode.reference?.provider === 'documents') setTimeout(() => docCancelQuiz(mode).catch(console.error), 0); await quizRestoreDiscard(mode); }
       else { mode.chatTabId = null; mode.chatWindowId = null; mode.chatRevealed = false; mode.error = 'Tab ChatGPT nền đã đóng. Bấm thử lại để mở lại và đọc tiếp.'; if (mode.job) mode.job.dispatched = false; }
       await quizSave(mode);
     });
