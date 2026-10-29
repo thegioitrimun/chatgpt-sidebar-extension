@@ -5,16 +5,20 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const root = path.resolve(__dirname, '..');
-const common = () => { const context = vm.createContext({}); vm.runInContext(fs.readFileSync(path.join(root, 'quiz-common.js'), 'utf8'), context); return context.sidebarQuiz; };
+const common = () => { const context = vm.createContext({ URL }); vm.runInContext(fs.readFileSync(path.join(root, 'quiz-common.js'), 'utf8'), context); return context.sidebarQuiz; };
 const question = (number, extra = {}) => ({ id: `q${number}`, number, text: `Câu ${number}?`, options: ['Một', 'Hai', 'Ba', 'Bốn', 'Năm'], multiple: false, hasMedia: false, ...extra });
 const event = () => ({ addListener() {} });
-function harness(stored = {}) {
+function harness(stored = {}, referenceStore = {}) {
   let source = { id: 7, windowId: 1, url: 'https://elearning.vinmec.com/de-thu', status: 'complete' };
   const tabs = new Map([[7, source]]), messages = [], created = [], writes = [], reloads = [];
   const session = structuredClone(stored);
+  const local = structuredClone(referenceStore);
   const chrome = {
     runtime: { getURL: value => `chrome-extension://test/${value}` },
-    storage: { session: {
+    storage: { local: {
+      async get(key) { return structuredClone({ [key]: local[key] }); },
+      async set(value) { Object.assign(local, structuredClone(value)); }
+    }, session: {
       async get(key) { return structuredClone(key === null ? session : { [key]: session[key] }); },
       async set(value) { Object.assign(session, structuredClone(value)); writes.push(structuredClone(value)); }
     } },
@@ -35,7 +39,8 @@ function harness(stored = {}) {
   const page = () => ({ id: 'test', tab: source, url: source.url, frameId: 0, documentId: 'doc1' });
   const chat = () => ({ id: 'test', tab: tabs.get(21), url: 'https://chatgpt.com/c/fixture', frameId: 0, documentId: 'chat1' });
   const mode = () => session['quizSession:1'];
-  return { context, session, messages, created, writes, reloads, mode, page, chat, source, async snapshot(items, sender = page()) { return context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: mode().runId, url: source.url, questions: items }, sender); }, async chatEvent(type, extra = {}, sender = chat()) { const job = mode().job; return context.handleQuizMessage({ type, jobId: job.id, token: job.token, runId: mode().runId, conversationUrl: 'https://chatgpt.com/c/fixture', ...extra }, sender); } };
+  const panel = { url: 'chrome-extension://test/sidepanel/sidepanel.html' };
+  return { context, session, local, tabs, panel, messages, created, writes, reloads, mode, page, chat, source, async snapshot(items, sender = page()) { return context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: mode().runId, url: source.url, questions: items }, sender); }, async chatEvent(type, extra = {}, sender = chat()) { const job = mode().job; return context.handleQuizMessage({ type, jobId: job.id, token: job.token, runId: mode().runId, conversationUrl: 'https://chatgpt.com/c/fixture', ...extra }, sender); } };
 }
 
 test('compact answers preserve source numbering, multi-select, unknown and validate all choices', () => {
@@ -122,4 +127,72 @@ test('reader upgrade refreshes its owned ChatGPT tab and automatically recovers 
   assert.deepEqual(h.reloads, [21]); assert.equal(h.mode().error, '');
   assert(h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_READ' && message.jobId === id));
   assert(!h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_START'));
+});
+
+test('reference addresses accept only private ChatGPT conversations', () => {
+  const api = common();
+  assert.equal(api.conversationUrl('https://chat.openai.com/c/source-123/?utm_source=test#x'), 'https://chatgpt.com/c/source-123');
+  for (const url of ['https://chatgpt.com/', 'https://chatgpt.com.evil.test/c/source', 'https://chatgpt.com@evil.test/c/source', 'https://user:secret@chatgpt.com/c/source', 'http://chatgpt.com/c/source', 'https://chatgpt.com/share/source', 'javascript:alert(1)']) assert.equal(api.conversationUrl(url), '', url);
+});
+
+test('only extension settings can save references and invalid enabled sources are rejected', async () => {
+  const h = harness();
+  const message = { type: 'QUIZ_SET_REFERENCE', windowId: 1, reference: { enabled: true, url: 'https://chatgpt.com/c/fixture', name: ' Ôn thi ' } };
+  assert.equal((await h.context.handleQuizMessage(message, h.page())).success, false);
+  assert.equal(h.local.quizReference, undefined);
+  await assert.rejects(h.context.handleQuizMessage({ ...message, reference: { enabled: true, url: 'https://other.test/c/source' } }, h.panel), /Dán địa chỉ/);
+  const saved = await h.context.handleQuizMessage(message, h.panel);
+  assert.equal(saved.reference.name, 'Ôn thi');
+  assert(saved.reference.revision);
+  assert.equal((await h.context.handleQuizMessage({ type: 'QUIZ_GET_REFERENCE', windowId: 1 }, h.panel)).reference.url, message.reference.url);
+});
+
+test('PDF mode routes every batch to its source conversation and keeps snapshot across worker restart', async () => {
+  const reference = { enabled: true, url: 'https://chatgpt.com/c/fixture', name: 'Da liễu', revision: 'source-v1' };
+  const h = harness({}, { quizReference: reference });
+  await h.context.quizToggle(1, true, h.source); await h.snapshot(Array.from({ length: 9 }, (_, i) => question(i + 1)));
+  assert.equal(h.created[0].url, reference.url); assert.equal(h.created[0].active, false);
+  assert.equal(h.mode().job.questions.length, 5); assert(h.mode().job.prompt.includes('NGUỒN TÀI LIỆU'));
+  assert(h.mode().job.prompt.includes('không chép số câu hoặc chữ đáp án'));
+  assert.equal(h.messages.find(m => m.type === 'QUIZ_CHAT_START').referenceUrl, reference.url);
+  await h.chatEvent('QUIZ_CHAT_WILL_SEND');
+  await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1A, 2B, 3C, 4D, 5E' });
+  await h.context.quizWake(1);
+  assert.equal(h.mode().job.questions.length, 4); assert.equal(h.created.length, 1);
+  assert(h.mode().job.prompt.includes('NGUỒN TÀI LIỆU'));
+  await h.chatEvent('QUIZ_CHAT_WILL_SEND');
+  const restarted = harness(h.session, { quizReference: { ...reference, url: 'https://chatgpt.com/c/new-source', revision: 'source-v2' } });
+  await restarted.context.quizWake(1);
+  assert.equal(restarted.created[0].url, reference.url);
+  assert(restarted.messages.some(m => m.type === 'QUIZ_CHAT_READ' && m.referenceUrl === reference.url));
+  assert.equal(restarted.mode().reference.revision, 'source-v1');
+});
+
+test('changing or refreshing PDF sources clears previous answers only on next activation', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  await h.chatEvent('QUIZ_CHAT_WILL_SEND'); await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1B' });
+  const oldRun = h.mode().runId;
+  await h.context.handleQuizMessage({ type: 'QUIZ_SET_REFERENCE', windowId: 1, reference: { enabled: true, url: 'https://chatgpt.com/c/fixture', name: 'PDF', refresh: true } }, h.panel);
+  assert.equal(h.context.quizView(h.mode()).answers, '1B'); assert.equal(h.mode().runId, oldRun);
+  await h.context.quizToggle(1, false); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  assert.equal(h.context.quizView(h.mode()).answers, ''); assert(h.mode().job.prompt.includes('NGUỒN TÀI LIỆU'));
+  const firstRevision = h.mode().reference.revision;
+  await h.context.handleQuizMessage({ type: 'QUIZ_SET_REFERENCE', windowId: 1, reference: { ...h.mode().reference, refresh: true } }, h.panel);
+  assert.equal(h.mode().reference.revision, firstRevision);
+  await h.context.quizToggle(1, false); await h.context.quizToggle(1, true, h.source);
+  assert.notEqual(h.mode().reference.revision, firstRevision); assert.equal(h.mode().job, undefined);
+});
+
+test('a different conversation cannot authorize a send or return a PDF answer', async () => {
+  const h = harness({}, { quizReference: { enabled: true, url: 'https://chatgpt.com/c/fixture', revision: 'source' } });
+  await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  const sender = { ...h.chat(), url: 'https://chatgpt.com/c/wrong' };
+  assert.equal((await h.chatEvent('QUIZ_CHAT_WILL_SEND', {}, sender)).stale, true);
+  assert.equal(h.mode().job.mayHaveSent, false);
+  assert.equal((await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1A', conversationUrl: sender.url })).stale, true);
+  assert.equal(Object.keys(h.mode().answers).length, 0);
+  h.tabs.get(21).url = sender.url;
+  const index = h.messages.length; await h.context.quizWake(1, 21);
+  assert(!h.messages.slice(index).some(m => m.type === 'QUIZ_CHAT_START'));
+  assert.match(h.mode().error, /cuộc chat chứa PDF/);
 });

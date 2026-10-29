@@ -301,6 +301,19 @@
         <span class="switch"><input id="setting-quiz-mode" type="checkbox" role="switch" aria-describedby="quiz-shortcut"><span class="switch-track" aria-hidden="true"></span></span>
       </label>
       <p id="quiz-shortcut" class="settings-note">Shift + Option + Q: bật/tắt trên tab đề Vinmec.</p>
+      <section class="reference-settings" aria-labelledby="reference-title">
+        <label class="settings-toggle-row" for="setting-quiz-reference">
+          <span class="settings-copy"><strong id="reference-title">Tài liệu tham khảo</strong><span>Đối chiếu đáp án với PDF đã đính kèm trong một cuộc chat ChatGPT riêng.</span></span>
+          <span class="switch"><input id="setting-quiz-reference" type="checkbox" role="switch" aria-describedby="reference-note"><span class="switch-track" aria-hidden="true"></span></span>
+        </label>
+        <label class="reference-label" for="reference-name">Tên bộ tài liệu</label>
+        <input id="reference-name" class="reference-input" type="text" maxlength="120" placeholder="Ví dụ: Ôn thi da liễu" autocomplete="off">
+        <label class="reference-label" for="reference-url">Địa chỉ cuộc chat chứa PDF</label>
+        <input id="reference-url" class="reference-input" type="url" placeholder="https://chatgpt.com/c/…" autocomplete="off" spellcheck="false" aria-describedby="reference-note">
+        <p id="reference-note" class="reference-note">Đính kèm tài liệu và gửi một tin nhắn trong ChatGPT, rồi dán địa chỉ cuộc chat ở đây. Áp dụng từ lần bật đáp án tiếp theo. Lưu lại sau khi thay tài liệu để bỏ kết quả cũ.</p>
+        <div class="reference-actions"><button id="btn-save-reference" class="btn-primary" type="button">Lưu nguồn</button><a id="reference-open" target="_blank" rel="noopener noreferrer" hidden>Mở cuộc chat</a></div>
+        <p id="reference-status" class="reference-note" role="status" aria-live="polite"></p>
+      </section>
     </div>
     <div class="modal-footer"><button id="btn-done-settings" class="btn-primary">Xong</button></div>
   </dialog>

@@ -44,6 +44,10 @@
     }
     controls.append(button('Ẩn', () => send('QUIZ_COLLAPSE', { collapsed: true }).catch(showError)), button('Dừng', () => send('QUIZ_STOP').catch(showError)));
     line.append(status, controls); section.append(line);
+    if (state.referenceName) {
+      const source = document.createElement('div'); source.className = 'status'; source.textContent = `Nguồn: ${state.referenceName}`;
+      source.style.overflowWrap = 'anywhere'; section.append(source);
+    }
     if (currentPage && state.answers) {
       const answers = document.createElement('div'); answers.className = 'answers'; answers.textContent = state.answers;
       section.append(answers);

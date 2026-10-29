@@ -29,6 +29,15 @@ Trạng thái, câu hỏi, hàng đợi và đáp án dùng `chrome.storage.sess
 
 Bản **1.7.2** sửa bộ đọc cho giao diện ChatGPT mới dùng DIL (`data-user-message-bubble` / `data-markdown-text-style`), bên cạnh giao diện cũ. Khắc phục trường hợp AI đã trả lời nhưng popup báo không tìm thấy lượt chat. Chế độ tự chờ khi ChatGPT bận, tự tiếp tục khi sẵn sàng và tự đọc lại lượt đã gửi sau khi kết nối lại; không cần bấm gửi từng đợt. Tab ChatGPT do extension quản lý được tự tải lại một lần khi nâng cấp bộ đọc.
 
+### Dùng PDF làm nguồn đáp án (1.7.3)
+
+1. Tạo một cuộc chat ChatGPT riêng, đính kèm các PDF cần dùng và gửi tin nhắn giới thiệu tài liệu. Giữ cuộc chat trong tài khoản đã đăng nhập trên Brave.
+2. Mở **Cài đặt → Tài liệu tham khảo**, bật công tắc, đặt tên bộ tài liệu và dán địa chỉ cuộc chat dạng `https://chatgpt.com/c/…`, rồi bấm **Lưu nguồn**. Extension lưu địa chỉ riêng trên máy trong `chrome.storage.local`; không lưu hoặc đưa PDF vào mã nguồn.
+3. Tắt rồi bật đáp án bằng **Shift + Option + Q** để áp dụng. Tab ChatGPT nền mở đúng cuộc chat chứa PDF, tất cả các đợt gửi tiếp vào cuộc chat đó. Prompt yêu cầu tra PDF, đối chiếu nội dung từng lựa chọn và gán lại A/B/C theo đề hiện tại; thiếu căn cứ, không đọc được tài liệu hoặc nguồn mâu thuẫn thì trả `?`.
+4. Lưu nguồn mới chỉ áp dụng ở lần bật tiếp theo; lượt đang chạy giữ nguồn cũ đến khi dừng. Mỗi lần **Lưu nguồn** bỏ bộ nhớ đáp án cũ ở lần bật sau, kể cả khi thêm/thay PDF trong cùng cuộc chat. Tắt nguồn PDF và lưu để trở về phân tích thông thường.
+
+Tab xử lý không tự chuyển sang cuộc chat khác nếu cuộc chat tài liệu lỗi hoặc bị đổi địa chỉ. Popup báo để bạn kiểm tra ChatGPT. Việc đọc PDF do ChatGPT thực hiện; extension không kiểm chứng độc lập nội dung đã được truy xuất và không bảo đảm mọi câu trả lời đều đúng. Câu có hình trên trang đề vẫn được đánh dấu `?` vì extension chưa gửi hình.
+
 Bản 1.6.4 đăng ký quy tắc nhúng bằng dynamic rules, tránh tạo cache `_metadata` trong thư mục extension. Nếu cập nhật từ bản cũ có thư mục `_metadata`, chuyển thư mục đó ra ngoài extension rồi bấm **Thử lại** khi tải tiện ích.
 
 ## Dùng nhanh

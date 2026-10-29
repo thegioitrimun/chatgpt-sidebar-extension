@@ -1,10 +1,31 @@
 // The worker owns the queue; neither the side panel nor an open UI is required.
 const quizKey = windowId => `quizSession:${windowId}`;
 const quizQueues = new Map();
-const quizChatBridgeVersion = 2;
+const quizChatBridgeVersion = 3;
+const quizReferenceKey = 'quizReference';
 const quizHost = url => { try { return new URL(url).origin === 'https://elearning.vinmec.com'; } catch { return false; } };
 const chatHost = url => { try { return ['https://chatgpt.com', 'https://chat.openai.com'].includes(new URL(url).origin); } catch { return false; } };
 const quizGet = async windowId => (await chrome.storage.session.get(quizKey(windowId)))[quizKey(windowId)];
+
+async function quizReferenceGet() {
+  const value = (await chrome.storage.local.get(quizReferenceKey))[quizReferenceKey];
+  return { enabled: value?.enabled === true, url: sidebarQuiz.conversationUrl(value?.url), name: typeof value?.name === 'string' ? value.name.slice(0, 120) : '', revision: value?.revision || '' };
+}
+
+async function quizReferenceSet(value) {
+  const previous = await quizReferenceGet();
+  const next = { enabled: value?.enabled === true, url: sidebarQuiz.conversationUrl(value?.url), name: typeof value?.name === 'string' ? value.name.trim().slice(0, 120) : '' };
+  if (next.enabled && !next.url) throw new Error('Dán địa chỉ cuộc chat đã đính kèm PDF: https://chatgpt.com/c/…');
+  // Editing a saved reference takes effect on the next activation. Running
+  // batches retain their source snapshot, including across worker restarts.
+  next.revision = previous.enabled === next.enabled && previous.url === next.url && previous.name === next.name && value?.refresh !== true ? previous.revision : crypto.randomUUID();
+  await chrome.storage.local.set({ [quizReferenceKey]: next });
+  return next;
+}
+
+function quizConversationMatches(mode, url) {
+  return !mode.reference?.enabled || sidebarQuiz.conversationUrl(url) === mode.reference.url;
+}
 
 function quizSerial(windowId, operation) {
   const task = (quizQueues.get(windowId) || Promise.resolve()).catch(() => {}).then(operation);
@@ -19,7 +40,7 @@ function quizView(mode) {
   const count = answers.length;
   return {
     enabled: mode.enabled, runId: mode.runId, tabId: mode.tabId, pageUrl: mode.sourceUrl, collapsed: mode.collapsed,
-    answers: answers.map(item => `${item.number}${item.answer}`).join(', '),
+    answers: answers.map(item => `${item.number}${item.answer}`).join(', '), referenceName: mode.reference?.enabled ? mode.reference.name || 'PDF đã đính kèm' : '',
     status: mode.error || mode.waiting || (mode.job ? `Đã có ${count}/${mode.questions.length} • Đang xử lý ${mode.job.questions.map(question => question.number).join(', ')}` : mode.questions.length ? `Đã có ${count}/${mode.questions.length} đáp án • Đang theo dõi câu mới` : 'Đang chờ câu hỏi…'),
     error: !!mode.error, retryLabel: mode.job?.mayHaveSent && !mode.job.readAttempted ? 'Đọc lại ChatGPT' : 'Thử lại câu thiếu'
   };
@@ -55,8 +76,16 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
     const tab = sourceTab || await getActiveTab(windowId);
     if (!tab?.id || !quizHost(tab.url)) throw new Error('Mở đề trên elearning.vinmec.com rồi nhấn Shift + Option + Q.');
     const sameTab = mode?.tabId === tab.id;
-    if (mode && !sameTab) await quizRestoreDiscard(mode);
-    mode = sameTab ? mode : { windowId, tabId: tab.id, frames: {}, questions: [], answers: {}, attempted: {} };
+    const reference = await quizReferenceGet();
+    if (reference.enabled && !reference.url) throw new Error('Nguồn PDF chưa có cuộc chat hợp lệ. Kiểm tra Cài đặt → Tài liệu tham khảo.');
+    const changedReference = (mode?.reference?.enabled ? mode.reference.revision : '') !== (reference.enabled ? reference.revision : '');
+    if (mode && (!sameTab || changedReference)) {
+      if (mode.job && mode.chatTabId) await chrome.tabs.sendMessage(mode.chatTabId, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
+      await quizRestoreDiscard(mode);
+    }
+    mode = sameTab && !changedReference ? mode : { windowId, tabId: tab.id, frames: {}, questions: [], answers: {}, attempted: {} };
+    mode.reference = reference;
+    if (reference.enabled) mode.conversationUrl = reference.url;
     mode.enabled = true;
     mode.runId = crypto.randomUUID();
     mode.collapsed = false;
@@ -77,6 +106,7 @@ async function quizEnsureChat(mode) {
   if (mode.chatTabId) {
     const tab = await chrome.tabs.get(mode.chatTabId).catch(() => null);
     if (tab && chatHost(tab.url)) {
+      if (!quizConversationMatches(mode, tab.url)) throw new Error('Tab ChatGPT đã rời cuộc chat chứa PDF. Mở lại đúng cuộc chat tài liệu rồi bấm thử lại.');
       await chrome.tabs.update(tab.id, { autoDiscardable: false });
       if (mode.chatBridgeVersion !== quizChatBridgeVersion) {
         // Reload only our own tab once after a reader upgrade. An already open
@@ -107,12 +137,16 @@ async function quizDispatch(mode, reading = false) {
     const result = await chrome.tabs.sendMessage(tab.id, {
       type: reading || job.mayHaveSent ? 'QUIZ_CHAT_READ' : 'QUIZ_CHAT_START',
       jobId: job.id, token: job.token, runId: mode.runId, prompt: job.prompt,
-      questions: job.questions, createdAt: job.createdAt
+      questions: job.questions, createdAt: job.createdAt, referenceUrl: mode.reference?.enabled ? mode.reference.url : ''
     }, { frameId: 0 }).catch(() => null);
     if (result?.success) { job.dispatched = true; mode.waiting = ''; await quizSave(mode); }
     else if (result?.waiting) {
       mode.waiting = result.draft ? 'Đang chờ ô ChatGPT trống; giữ nguyên bản nháp của bạn.' : 'Đang chờ ChatGPT sẵn sàng; sẽ tự tiếp tục…';
       job.dispatched = false;
+      await quizSave(mode);
+    }
+    else if (result?.referenceMismatch) {
+      mode.error = 'ChatGPT chưa mở đúng cuộc chat chứa PDF. Mở ChatGPT để kiểm tra địa chỉ và tài liệu rồi bấm thử lại.';
       await quizSave(mode);
     }
     else if (result && !result.ready) {
@@ -131,8 +165,8 @@ async function quizPump(mode) {
   const missing = mode.questions.filter(question => !mode.answers[question.id] && !mode.attempted[question.id]);
   if (!missing.length) return;
   const id = crypto.randomUUID();
-  const questions = sidebarQuiz.batch(missing, id);
-  mode.job = { id, token: crypto.randomUUID(), runId: mode.runId, createdAt: Date.now(), questions, prompt: sidebarQuiz.prompt(id, questions), mayHaveSent: false, dispatched: false };
+  const questions = sidebarQuiz.batch(missing, id, mode.reference);
+  mode.job = { id, token: crypto.randomUUID(), runId: mode.runId, createdAt: Date.now(), questions, prompt: sidebarQuiz.prompt(id, questions, mode.reference), mayHaveSent: false, dispatched: false };
   await quizSave(mode);
   await quizDispatch(mode);
 }
@@ -173,6 +207,12 @@ async function quizChatEvent(message, sender) {
     const mode = await quizGet(sender.tab.windowId);
     const job = mode?.job;
     if (!mode?.enabled || !job || mode.chatTabId !== sender.tab.id || sender.frameId !== 0 || !chatHost(sender.url) || job.id !== message.jobId || job.token !== message.token || mode.runId !== message.runId) return { success: false, stale: true };
+    if (!quizConversationMatches(mode, sender.url) || (mode.reference?.enabled && !quizConversationMatches(mode, message.conversationUrl))) {
+      mode.error = 'Tab ChatGPT đã rời cuộc chat chứa PDF. Không nhận đáp án từ cuộc chat khác.';
+      job.dispatched = false;
+      await quizSave(mode);
+      return { success: false, stale: true };
+    }
     if (/^https:\/\/(?:chatgpt\.com|chat\.openai\.com)\/c\//.test(message.conversationUrl || '')) mode.conversationUrl = message.conversationUrl;
     if (message.type === 'QUIZ_CHAT_WILL_SEND') {
       if (job.mayHaveSent) return { success: false, stale: true };
@@ -225,6 +265,8 @@ async function handleQuizMessage(message, sender) {
   if (!fromPage && !fromPanel) return { success: false };
   const windowId = fromPage ? sender.tab.windowId : message.windowId;
   if (!Number.isInteger(windowId)) return { success: false };
+  if (message.type === 'QUIZ_GET_REFERENCE' && fromPanel) return { success: true, reference: await quizReferenceGet() };
+  if (message.type === 'QUIZ_SET_REFERENCE' && fromPanel) return { success: true, reference: await quizReferenceSet(message.reference) };
   if (message.type === 'QUIZ_SET_MODE' && fromPanel) return quizToggle(windowId, message.enabled);
   if (message.type === 'QUIZ_SNAPSHOT' && fromPage) return quizSnapshot(message, sender);
   if (message.type === 'QUIZ_GET_STATE' || message.type === 'QUIZ_PAGE_READY') {

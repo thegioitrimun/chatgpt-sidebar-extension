@@ -7,10 +7,12 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
   function replyFor(state) {
     return globalThis.sidebarQuizChatDOM.readReply(document, state.jobId);
   }
+  const hasReference = state => !state.referenceUrl || sidebarQuiz.conversationUrl(location.href) === state.referenceUrl;
   async function watch(state) {
     const deadline = Date.now() + 300000;
     let previous = '', changedAt = Date.now(), lastUrl = '';
     while (!state.cancelled && Date.now() < deadline) {
+      if (!hasReference(state)) throw new Error('Cuộc chat đã đổi địa chỉ; dừng đọc để tránh lẫn nguồn PDF.');
       if (lastUrl !== location.href) { lastUrl = location.href; await report(state, 'QUIZ_CHAT_LOCATION').catch(() => {}); }
       const reply = replyFor(state);
       if (reply.changed) throw new Error('Cuộc chat có tin nhắn khác sau lượt phân tích. Kiểm tra ChatGPT trước khi thử lại.');
@@ -33,6 +35,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
     try {
       if (!state.reading) {
         state.beforeSubmit = async () => {
+          if (!hasReference(state)) return false;
           const response = await report(state, 'QUIZ_CHAT_WILL_SEND');
           return response?.success === true;
         };
@@ -54,6 +57,7 @@ globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normali
     }
     if (!['QUIZ_CHAT_START', 'QUIZ_CHAT_READ'].includes(message.type)) return;
     if (typeof message.jobId !== 'string' || typeof message.token !== 'string' || typeof message.runId !== 'string' || typeof message.prompt !== 'string' || !Array.isArray(message.questions) || !message.questions.length || message.questions.length > 5) { respond({ success: false }); return; }
+    if (!hasReference(message)) { respond({ success: false, referenceMismatch: true }); return; }
     const reading = message.type === 'QUIZ_CHAT_READ';
     if (current?.jobId === message.jobId && current.token === message.token && current.runId === message.runId && !current.finished && !current.cancelled) { respond({ success: true }); return; }
     if (current && !current.finished && !current.cancelled) { respond({ success: false, ready: false }); return; }

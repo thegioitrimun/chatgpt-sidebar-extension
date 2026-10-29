@@ -378,6 +378,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     invalidateAutomaticPage();
     scheduleAutomaticAnalysis();
   }
+  function applyReference(reference) {
+    $('setting-quiz-reference').checked = reference?.enabled === true;
+    $('reference-name').value = reference?.name || '';
+    $('reference-url').value = reference?.url || '';
+    $('reference-open').hidden = !reference?.url;
+    if (reference?.url) $('reference-open').href = reference.url;
+    else $('reference-open').removeAttribute('href');
+    $('reference-status').textContent = reference?.enabled ? `Đã chọn: ${reference.name || 'PDF trong cuộc chat'}.` : 'Nguồn PDF đang tắt.';
+  }
+  $('btn-save-reference').addEventListener('click', async () => {
+    const button = $('btn-save-reference'); button.disabled = true;
+    try {
+      const result = await send({ type: 'QUIZ_SET_REFERENCE', reference: { enabled: $('setting-quiz-reference').checked, name: $('reference-name').value, url: $('reference-url').value, refresh: true } });
+      if (!result?.success) throw new Error(result?.error || 'Không lưu được nguồn tài liệu.');
+      applyReference(result.reference);
+      $('reference-status').textContent = 'Đã lưu. Tắt rồi bật đáp án để áp dụng nguồn mới.';
+    } catch (error) { $('reference-status').textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   $('setting-quiz-mode').addEventListener('change', async () => {
     const input = $('setting-quiz-mode'); input.disabled = true;
     try {
@@ -465,6 +484,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     lastAutomaticPage = session[`lastAutomaticPage:${windowId}`] || '';
     const quiz = await send({ type: 'QUIZ_GET_STATE' });
     applyQuizState(quiz?.state);
+    const reference = await send({ type: 'QUIZ_GET_REFERENCE' });
+    applyReference(reference?.reference);
     $('quiz-shortcut').textContent = quiz?.shortcut ? `${quiz.shortcut}: bật/tắt trên tab đề Vinmec. Đóng sidebar vẫn tiếp tục.` : 'Chưa gán phím tắt. Mở brave://extensions/shortcuts và gán Shift + Option + Q cho “Bật/tắt đáp án tự động trên Vinmec”.';
     applyAutomaticSetting(stored.autoAnalyzeOnNavigation);
     if (stored.hideLoginBanner) $('login-banner').classList.add('hidden');

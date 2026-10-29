@@ -824,6 +824,13 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-g
 .settings-copy strong { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
 .settings-copy > span, .settings-note { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .settings-note { padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.reference-settings { margin-top: 18px; border-top: 1px solid var(--border-subtle); }
+.reference-label { display: block; font-size: 12px; font-weight: 600; margin: 14px 0 7px; }
+.reference-input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: 12px; }
+.reference-input:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+.reference-note { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.reference-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 14px; }
+.reference-actions a { color: var(--accent-green); font-size: 12px; }
 .switch { position: relative; display: inline-flex; width: 38px; height: 22px; flex-shrink: 0; margin-top: 1px; }
 .switch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 1; }
 .switch-track { width: 100%; height: 100%; border-radius: 20px; background: #b9c7c0; transition: background .16s ease; }
