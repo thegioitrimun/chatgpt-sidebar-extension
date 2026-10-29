@@ -64,6 +64,14 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
   return quizSerial(windowId, async () => {
     let mode = await quizGet(windowId);
     if (expectedRunId && mode?.runId !== expectedRunId) return { success: false, stale: true };
+    if (enabled === undefined && mode?.enabled && mode.collapsed && mode.tabId === sourceTab?.id) {
+      // The keyboard shortcut restores a fully hidden popup without restarting
+      // its background job or resending questions.
+      mode.collapsed = false;
+      await quizSave(mode);
+      await quizAttach(mode.tabId);
+      return { success: true, state: quizView(mode) };
+    }
     const next = enabled === undefined ? !mode?.enabled : enabled === true;
     if (!next) {
       if (!mode) return { success: true, state: { enabled: false } };
