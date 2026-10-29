@@ -37,7 +37,7 @@ function harness(stored = {}, referenceStore = {}) {
       async create(options) {
         created.push(structuredClone(options));
         const id = 30 + created.length;
-        const tab = options.tabId ? tabs.get(options.tabId) : { id: 21, url: options.url, status: 'complete' };
+        const tab = options.tabId ? tabs.get(options.tabId) : { id: nextTabId++, url: options.url, status: 'complete' };
         tab.windowId = id; tab.active = true; tabs.set(tab.id, tab);
         const window = { id, state: options.state, focused: options.state === 'minimized' ? false : options.focused ?? true };
         windows.set(id, window);
@@ -85,11 +85,11 @@ test('long exams batch at five questions/16k target without cutting one question
   assert(api.prompt('job', [long]).includes(long.text));
 });
 
-test('background uses one inactive tab in the source window and persists before dispatch', async () => {
+test('background uses one minimized dedicated window and persists before dispatch', async () => {
   const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1), question(7)]);
-  assert.equal(h.created.length, 1); assert.equal(h.created[0].active, false); assert.equal(h.created[0].windowId, 1);
-  assert.equal(h.windows.size, 1); assert.deepEqual(h.windowUpdates, []);
-  assert.equal(h.mode().chatWindowId, h.mode().windowId);
+  assert.equal(h.created.length, 1); assert.equal(h.created[0].focused, false); assert.equal(h.created[0].type, 'popup');
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert.notEqual(h.mode().chatWindowId, h.mode().windowId);
   assert.equal(h.chat().tab.windowId, h.mode().chatWindowId);
   assert.equal(h.mode().job.questions.length, 2);
   assert(h.writes.some(write => write['quizSession:1'].job?.id === h.mode().job.id));
@@ -144,15 +144,19 @@ test('off/on resumes a pending answer immediately using READ', async () => {
   assert(!h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_START'));
 });
 
-test('reader upgrade refreshes its owned ChatGPT tab and automatically recovers a paused reply', async () => {
+test('reader upgrade reads the pending reply first, then refreshes before the next send', async () => {
   const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]); await h.chatEvent('QUIZ_CHAT_WILL_SEND');
   await h.chatEvent('QUIZ_CHAT_ERROR', { error: 'Old renderer could not find the prompt', reading: true });
   h.mode().chatBridgeVersion = 1;
   const id = h.mode().job.id, index = h.messages.length;
   await h.context.quizWake(1, 21); await h.context.quizWake(1, 21);
-  assert.deepEqual(h.reloads, [21]); assert.equal(h.mode().error, '');
+  assert.deepEqual(h.reloads, []); assert.equal(h.mode().error, '');
   assert(h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_READ' && message.jobId === id));
   assert(!h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_START'));
+  await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1A' });
+  await h.snapshot([question(1), question(2)]);
+  assert.deepEqual(h.reloads, [21]);
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
 });
 
 test('reference addresses accept only private ChatGPT conversations', () => {
@@ -177,8 +181,8 @@ test('PDF mode routes every batch to its source conversation and keeps snapshot 
   const reference = { enabled: true, url: 'https://chatgpt.com/c/fixture', name: 'Da liễu', revision: 'source-v1' };
   const h = harness({}, { quizReference: reference });
   await h.context.quizToggle(1, true, h.source); await h.snapshot(Array.from({ length: 9 }, (_, i) => question(i + 1)));
-  assert.equal(h.created[0].url, reference.url); assert.equal(h.created[0].active, false);
-  assert.equal(h.created[0].windowId, 1); assert.deepEqual(h.windowUpdates, []);
+  assert.equal(h.created[0].url, 'about:blank'); assert.equal(h.chat().tab.url, reference.url); assert.equal(h.created[0].focused, false);
+  assert.notEqual(h.mode().chatWindowId, 1); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
   assert.equal(h.mode().job.questions.length, 5); assert(h.mode().job.prompt.includes('NGUỒN TÀI LIỆU'));
   assert(h.mode().job.prompt.includes('không chép số câu hoặc chữ đáp án'));
   assert.equal(h.messages.find(m => m.type === 'QUIZ_CHAT_START').referenceUrl, reference.url);
@@ -190,7 +194,7 @@ test('PDF mode routes every batch to its source conversation and keeps snapshot 
   await h.chatEvent('QUIZ_CHAT_WILL_SEND');
   const restarted = harness(h.session, { quizReference: { ...reference, url: 'https://chatgpt.com/c/new-source', revision: 'source-v2' } });
   await restarted.context.quizWake(1);
-  assert.equal(restarted.created[0].url, reference.url);
+  assert.equal(restarted.created[0].url, 'about:blank'); assert.equal(restarted.chat().tab.url, reference.url);
   assert(restarted.messages.some(m => m.type === 'QUIZ_CHAT_READ' && m.referenceUrl === reference.url));
   assert.equal(restarted.mode().reference.revision, 'source-v1');
 });
@@ -244,57 +248,112 @@ test('ready and navigation events recover a sent answer in a legacy window witho
   assert(h.messages.slice(index).some(message => message.type === 'QUIZ_CHAT_READ'));
   await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1B' });
   assert.equal(h.context.quizView(h.mode()).answers, '1B');
-  assert.deepEqual(h.reloads, []); assert.deepEqual(h.windowUpdates, []);
+  assert.deepEqual(h.reloads, []); assert(h.windowUpdates.every(update => update.id !== 1 && !Object.hasOwn(update, 'focused')));
   assert.equal(h.session['quizSession:31'], undefined);
 });
 
-test('new sends migrate away from a legacy window without moving, revealing or closing it', async () => {
+test('legacy owned tabs move to a minimized window without minimizing their shared source window', async () => {
   const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
-  h.windows.set(31, { id: 31, state: 'minimized', focused: false });
-  h.tabs.get(21).windowId = 31; h.tabs.get(21).url = 'https://chatgpt.com/c/fixture'; h.mode().chatWindowId = 31;
+  h.tabs.get(21).windowId = 1;
+  delete h.mode().chatWindowId;
   const jobId = h.mode().job.id;
   await h.context.quizWake(1);
-  assert.equal(h.created.at(-1).active, false); assert.equal(h.created.at(-1).windowId, 1);
-  assert.equal(h.created.at(-1).url, 'https://chatgpt.com/c/fixture');
-  assert.equal(h.mode().chatTabId, 22); assert.equal(h.mode().job.id, jobId);
-  assert.equal(h.tabs.get(21).windowId, 31); assert.equal(h.tabs.get(21).autoDiscardable, true);
-  assert.equal(h.windows.get(31).state, 'minimized'); assert.deepEqual(h.windowUpdates, []);
-  assert(h.messages.some(message => message.id === 21 && message.type === 'QUIZ_CHAT_CANCEL'));
-  assert(h.messages.some(message => message.id === 22 && message.type === 'QUIZ_CHAT_START'));
-});
-
-test('only explicit Open ChatGPT activates a tab; retries preserve the source fullscreen state', async () => {
-  const h = harness(); h.windows.get(1).state = 'fullscreen';
-  await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
-  assert.deepEqual(h.windowUpdates, []); assert.equal(h.tabs.get(21).active, false);
-  await h.context.handleQuizMessage({ type: 'QUIZ_OPEN_CHAT', runId: h.mode().runId }, h.page());
-  assert.equal(h.tabs.get(21).active, true); assert.equal(h.windows.get(1).state, 'fullscreen');
-  assert.deepEqual(h.windowUpdates, [{ id: 1, focused: true }]);
+  assert.equal(h.created.at(-1).tabId, 21);
+  assert.equal(h.created.at(-1).type, 'popup'); assert.equal(h.created.at(-1).focused, false);
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert.equal(h.windows.get(1).state, 'normal'); assert.equal(h.windows.get(1).focused, true);
+  assert.equal(h.mode().job.id, jobId);
+  const chatWindowId = h.mode().chatWindowId;
+  h.tabs.set(99, { id: 99, windowId: chatWindowId, url: 'https://example.org/', status: 'complete' });
+  h.windows.get(chatWindowId).state = 'normal';
   await h.context.quizWake(1);
-  await h.context.handleQuizMessage({ type: 'QUIZ_RETRY', runId: h.mode().runId }, h.page());
-  assert.deepEqual(h.windowUpdates, [{ id: 1, focused: true }]);
-  assert.equal(h.windows.get(1).state, 'fullscreen');
+  assert.notEqual(h.mode().chatWindowId, chatWindowId);
+  assert.equal(h.windows.get(chatWindowId).state, 'normal');
 });
 
-test('worker restart reads a journaled legacy window, and a closed tab recovers in the background', async () => {
+test('only an explicit open command reveals ChatGPT, and retry minimizes it again', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  const chatWindowId = h.mode().chatWindowId;
+  assert(!h.windowUpdates.some(update => update.focused === true));
+  await h.context.handleQuizMessage({ type: 'QUIZ_OPEN_CHAT', runId: h.mode().runId }, h.page());
+  assert.equal(h.windows.get(chatWindowId).state, 'normal'); assert.equal(h.mode().chatRevealed, true);
+  await h.context.quizWake(1);
+  assert.equal(h.windows.get(chatWindowId).state, 'normal');
+  await h.context.handleQuizMessage({ type: 'QUIZ_RETRY', runId: h.mode().runId }, h.page());
+  assert.equal(h.windows.get(chatWindowId).state, 'minimized'); assert.equal(h.mode().chatRevealed, false);
+  assert(!h.windowUpdates.some(update => update.id === 1));
+});
+
+test('a worker restart adopts its journaled window and closed windows recover by reading the sent prompt', async () => {
   const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]); await h.chatEvent('QUIZ_CHAT_WILL_SEND');
-  h.windows.set(31, { id: 31, state: 'minimized', focused: false }); h.tabs.get(21).windowId = 31; h.mode().chatWindowId = 31;
-  const id = h.mode().job.id; h.mode().chatTabId = null;
+  const id = h.mode().job.id, chatWindowId = h.mode().chatWindowId;
+  h.mode().chatTabId = null;
   const count = h.created.length;
   await h.context.quizWake(1);
   assert.equal(h.created.length, count); assert.equal(h.mode().chatTabId, 21);
-  h.tabs.delete(21); h.windows.delete(31);
+  h.tabs.delete(21); h.windows.delete(chatWindowId);
   await h.chrome.tabs.onRemoved.listeners[0](21);
   assert.match(h.mode().error, /Tab ChatGPT nền đã đóng/);
   await h.context.handleQuizMessage({ type: 'QUIZ_RETRY', runId: h.mode().runId }, h.page());
-  assert.equal(h.mode().job.id, id); assert.equal(h.created.at(-1).active, false);
+  assert.equal(h.mode().job.id, id); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
   assert(h.messages.some(message => message.type === 'QUIZ_CHAT_READ' && message.jobId === id));
-  assert.deepEqual(h.windowUpdates, []);
 });
 
-test('automatic start, batches, retry, stop and restart never call a window mutation or activate a tab', async () => {
+test('the inactive popup is journaled and minimized before any prompt is dispatched', async () => {
+  const h = harness(), update = h.chrome.windows.update, updateTab = h.chrome.tabs.update;
+  h.chrome.tabs.update = async (id, values) => {
+    if (values.url) {
+      assert.equal(h.mode().chatTabId, id);
+      assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+      assert.equal(h.mode().chatStartUrl, values.url);
+      assert(!h.messages.some(message => message.type === 'QUIZ_CHAT_START'));
+    }
+    return updateTab(id, values);
+  };
+  h.chrome.windows.update = async (id, values) => {
+    if (values.state === 'minimized') {
+      assert.equal(h.mode().chatWindowId, id);
+      assert(!h.messages.some(message => message.type === 'QUIZ_CHAT_START'));
+    }
+    return update(id, values);
+  };
+  await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert(h.windowUpdates.some(update => update.id === h.mode().chatWindowId && update.state === 'minimized' && !Object.hasOwn(update, 'focused')));
+  assert(h.messages.some(message => message.type === 'QUIZ_CHAT_START'));
+  assert.equal(h.windows.get(1).focused, true);
+});
+
+test('sized inactive popups avoid inheriting fullscreen on creation and legacy migration', async () => {
+  const h = harness(), create = h.chrome.windows.create, shown = [];
+  h.windows.get(1).state = 'fullscreen';
+  h.chrome.windows.create = async options => {
+    const window = await create(options);
+    // Regression contract verified on Brave/macOS with fullscreen source windows.
+    if (options.type !== 'popup' || options.state !== 'normal' || options.focused !== false || !options.width || !options.height) shown.push(window.id);
+    return window;
+  };
+  await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  assert.deepEqual(shown, []);
+  assert.deepEqual(h.created[0], { url: 'about:blank', type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+  assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
+  assert.equal(h.windows.get(h.mode().chatWindowId).focused, false);
+  assert(h.windowUpdates.every(update => update.id !== 1 && !Object.hasOwn(update, 'focused')));
+  h.tabs.get(21).windowId = 1;
+  await h.context.quizWake(1);
+  assert.deepEqual(h.created.at(-1), { tabId: 21, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+  assert.deepEqual(shown, []);
+  assert(h.windowUpdates.every(update => update.id !== 1 && !Object.hasOwn(update, 'focused')));
+  assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
+  const count = h.created.length;
+  const updates = h.windowUpdates.length;
+  await h.context.quizWake(1);
+  assert.equal(h.created.length, count); assert.equal(h.windowUpdates.length, updates);
+});
+
+
+test('automatic batches, retry, stop and restart reuse the minimized window without activation', async () => {
   const h = harness(); h.windows.get(1).state = 'fullscreen';
-  h.chrome.windows.create = h.chrome.windows.update = async () => { throw Error('Automatic window mutation'); };
   const update = h.chrome.tabs.update;
   h.chrome.tabs.update = async (id, values) => { assert.equal(values.active, undefined); return update(id, values); };
   await h.context.quizToggle(1, true, h.source); await h.snapshot(Array.from({ length: 6 }, (_, i) => question(i + 1)));
@@ -304,8 +363,31 @@ test('automatic start, batches, retry, stop and restart never call a window muta
   await h.context.handleQuizMessage({ type: 'QUIZ_RETRY', runId: h.mode().runId }, h.page());
   await h.chatEvent('QUIZ_CHAT_RESULT', { text: '6B' });
   await h.context.quizToggle(1, false); await h.context.quizToggle(1, true, h.source);
-  assert.equal(h.created.length, 1); assert.equal(h.created[0].active, false);
-  assert.equal(h.source.active, true); assert.equal(h.tabs.get(21).active, false);
+  assert.equal(h.created.length, 1); assert.equal(h.created[0].focused, false);
+  assert.equal(h.source.active, true); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert(h.windowUpdates.every(values => values.id !== 1 && !Object.hasOwn(values, 'focused')));
   assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
   assert.equal(h.mode().error, ''); assert.equal(Object.keys(h.mode().answers).length, 6);
+});
+
+
+test('restart between empty-window creation and navigation resumes its journaled window', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
+  const id = h.mode().job.id, count = h.created.length;
+  h.tabs.get(21).url = 'about:blank'; h.mode().chatTabId = null;
+  h.mode().chatStartUrl = 'https://chatgpt.com/'; h.mode().job.dispatched = false;
+  await h.context.quizWake(1);
+  assert.equal(h.created.length, count); assert.equal(h.mode().chatTabId, 21);
+  assert.equal(h.mode().job.id, id); assert.equal(h.chat().tab.url, 'https://chatgpt.com/');
+  assert.equal(h.mode().chatStartUrl, null);
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  // If a staged blank tab was moved into the source window, detach it before
+  // navigating; recovery must never minimize the shared source window.
+  h.tabs.get(21).url = 'about:blank'; h.tabs.get(21).windowId = 1;
+  h.mode().chatStartUrl = 'https://chatgpt.com/'; h.mode().job.dispatched = false;
+  await h.context.quizWake(1);
+  assert.equal(h.created.length, count + 1); assert.equal(h.created.at(-1).tabId, 21);
+  assert.equal(h.windows.get(1).state, 'normal'); assert.equal(h.windows.get(1).focused, true);
+  assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert.equal(h.chat().tab.url, 'https://chatgpt.com/');
 });

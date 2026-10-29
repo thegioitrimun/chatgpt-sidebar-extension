@@ -1,5 +1,5 @@
-// Runtime transport for the inactive ChatGPT tab. Never depends on a
-// parent frame, side panel DOM, or the worker remaining in memory.
+// Runtime transport for the ChatGPT tab in its separate background window.
+// Never depends on a parent frame, side panel DOM, or the worker staying awake.
 globalThis.initializeSidebarQuizChat = function ({ findInput, inputText, normalizeText, isGenerating, injectPageContext, hasOtherJob }) {
   let current;
   const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
