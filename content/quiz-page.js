@@ -29,7 +29,7 @@
   function render() {
     if (!topFrame) return;
     const currentPage = verified && state.pageUrl === location.href;
-    if (!state.enabled || state.collapsed || !currentPage || !state.answers) { host?.remove(); host = root = null; return; }
+    if (!state.enabled || state.collapsed || !currentPage) { host?.remove(); host = root = null; return; }
     if (!host?.isConnected) {
       host = document.createElement('div'); host.id = 'chatgpt-quiz-overlay';
       host.style.cssText = 'all:initial!important;position:fixed!important;inset:auto 12px 16px!important;z-index:2147483647!important;display:block!important;pointer-events:none!important;';
@@ -43,7 +43,8 @@
     }
     const section = root.querySelector('section'); section.replaceChildren();
     section.className = 'panel'; section.setAttribute('aria-label', 'Đáp án thử nghiệm');
-    const answers = document.createElement('div'); answers.className = 'answers'; answers.textContent = state.answers;
+    const answers = document.createElement('div'); answers.className = 'answers'; answers.textContent = state.error ? state.status : state.answers || state.status || 'Đang đọc trang để phân tích…';
+    answers.setAttribute('role', state.error ? 'alert' : 'status');
     section.append(answers);
     syncTypography();
   }
@@ -63,12 +64,11 @@
     const runId = state.runId;
     try {
       const snapshot = extractQuizQuestions();
-      const next = JSON.stringify([snapshot.url, snapshot.questions]);
+      const next = JSON.stringify([snapshot.url, snapshot.questions, snapshot.questions.length ? '' : snapshot.pageText]);
       if (next === signature) return;
-      signature = next;
       const response = await send('QUIZ_SNAPSHOT', snapshot);
       if (!response?.success && !response?.stale) throw new Error(response?.error || 'Chưa đọc được câu hỏi.');
-      if (response?.success && state.runId === runId && location.href === snapshot.url) { verified = true; render(); }
+      if (response?.success && state.runId === runId && location.href === snapshot.url) { signature = next; verified = true; render(); }
     } catch (error) { if (state.runId === runId) showError(error); }
   }
   async function refresh() {

@@ -190,5 +190,32 @@ function extractQuizQuestions() {
     if (!a || !b || a === b) return 0;
     return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
   });
-  return { url: location.href, title: document.title, questions };
+  return { url: location.href, title: document.title, questions, ...extractQuizPageText() };
+}
+
+// A page need not expose radio buttons or a recognizable quiz layout. Keep a
+// text fallback so the hotkey still submits it for the model to read.
+function extractQuizPageText() {
+  const root = document.querySelector('main, article, [role="main"]') || document.body;
+  if (!root) return { pageText: '' };
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), lines = [];
+  const excluded = 'script,style,noscript,input,textarea,select,nav,footer,[hidden],[aria-hidden="true"],[role="timer"],time,.timer,.countdown,#chatgpt-quiz-overlay';
+  const visibility = new WeakMap();
+  const visible = element => {
+    if (!element) return true;
+    if (!visibility.has(element)) {
+      const style = getComputedStyle(element);
+      visibility.set(element, element.getClientRects().length > 0 && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0' && visible(element.parentElement));
+    }
+    return visibility.get(element);
+  };
+  let node, length = 0;
+  while ((node = walker.nextNode())) {
+    const parent = node.parentElement, value = node.textContent.replace(/\s+/g, ' ').trim();
+    if (!value || !parent || parent.closest(excluded)) continue;
+    if (!visible(parent)) continue;
+    lines.push(value); length += value.length + 1;
+    if (length > 200000) return { pageText: lines.join('\n').slice(0, 200000), pageTooLong: true };
+  }
+  return { pageText: lines.join('\n'), pageTooLong: false };
 }

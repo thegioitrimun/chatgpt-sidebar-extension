@@ -74,6 +74,46 @@ test('compact answers preserve source numbering, multi-select, unknown and valid
   assert.equal(api.parse('1A', [question(1, { hasMedia: true })])[0].answer, '?');
 });
 
+test('unrecognized page layouts are submitted as text and return answers without an invented prefix', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source);
+  const text = 'Which marker is in the document? Options in order: TOPAZ | SAPPHIRE | RUBY.';
+  await h.context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: h.mode().runId, url: h.source.url, questions: [], pageText: text }, h.page());
+  assert.equal(h.mode().questions[0].rawPage, true);
+  await h.context.quizWake(1);
+  assert(h.mode().job.prompt.includes(text));
+  assert(h.mode().job.prompt.includes('Chỉ trả đáp án'));
+  await h.chatEvent('QUIZ_CHAT_WILL_SEND'); await h.chatEvent('QUIZ_CHAT_RESULT', { text: '7B, 19A-C?' });
+  assert.equal(h.context.quizView(h.mode()).answers, '7B, 19A-C?');
+  const restarted = harness(h.session); await restarted.context.quizWake(1);
+  assert.equal(restarted.mode().job, null);
+});
+
+test('whole-page parts retain all text and run sequentially without truncating long lines', async () => {
+  const api = common(), text = 'a'.repeat(33000) + '\n' + 'b'.repeat(7000);
+  const parts = api.pageParts(text);
+  assert(parts.every(part => part.length <= 14000));
+  assert.equal(parts.join('').replace(/\n/g, ''), text.replace(/\n/g, ''));
+  const raw = { ...question(1), rawPage: true, pageParts: parts.length, text: parts[0] };
+  assert.equal(api.batch([raw, { ...raw, number: 2 }], 'test').length, 1);
+  assert.equal(api.parse('4', [raw])[0].answer, '4');
+  assert.equal(api.parse('```fake```', [raw]), null);
+  const h = harness(); await h.context.quizToggle(1, true, h.source);
+  await h.context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: h.mode().runId, url: h.source.url, questions: [], pageText: text }, h.page());
+  await h.context.quizWake(1); const firstId = h.mode().job.id;
+  await h.chatEvent('QUIZ_CHAT_WILL_SEND'); await h.chatEvent('QUIZ_CHAT_RESULT', { text: '1B' });
+  await h.context.quizWake(1);
+  assert.notEqual(h.mode().job.id, firstId); assert.equal(h.mode().job.questions[0].number, 2);
+});
+
+test('hotkey on another tab starts that tab rather than silently switching the old tab off', async () => {
+  const h = harness(); await h.context.quizToggle(1, true, h.source);
+  const next = { ...h.source, id: 8, url: 'https://another.example/questions' }; h.tabs.set(8, next);
+  await h.context.quizToggle(1, undefined, next);
+  assert.equal(h.mode().enabled, true); assert.equal(h.mode().tabId, 8);
+  assert(h.messages.some(message => message.id === 7 && message.type === 'QUIZ_PAGE_STATE' && message.state.enabled === false));
+  await h.context.quizToggle(1, undefined, next); assert.equal(h.mode().enabled, false);
+});
+
 test('long exams batch at five questions/16k target without cutting one question', () => {
   const api = common(), items = Array.from({ length: 71 }, (_, index) => question(index + 1));
   const batches = [];

@@ -12,6 +12,18 @@ let browser;
 before(async () => {
   if (chromium) browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}) });
 });
+
+browserTest('plain page fallback retains unstructured questions and excludes hidden, timer and draft content', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<main><p>Which marker is in the document? Options in order: TOPAZ | SAPPHIRE | RUBY.</p><p hidden>hidden secret</p><span style="opacity:0"><b>invisible secret</b></span><span role="timer">00:59</span><textarea>private draft</textarea><div id="chatgpt-quiz-overlay">old popup answer</div></main>');
+    await page.addScriptTag({ content: fs.readFileSync(path.join(__dirname, '../content/quiz-extract.js'), 'utf8') });
+    const snapshot = await page.evaluate(() => extractQuizQuestions());
+    assert.equal(snapshot.questions.length, 0);
+    assert(snapshot.pageText.includes('TOPAZ | SAPPHIRE | RUBY'));
+    for (const hidden of ['hidden secret', 'invisible secret', '00:59', 'private draft', 'old popup answer']) assert(!snapshot.pageText.includes(hidden));
+  } finally { await page.close(); }
+});
 after(async () => { await browser?.close(); });
 const source = fs.readFileSync(path.join(__dirname, '../content/quiz-extract.js'), 'utf8');
 async function extract(html) {

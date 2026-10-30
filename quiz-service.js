@@ -1,8 +1,9 @@
 // The worker owns the queue; neither the side panel nor an open UI is required.
 const quizKey = windowId => `quizSession:${windowId}`;
 const quizQueues = new Map();
-const quizChatBridgeVersion = 6;
+const quizChatBridgeVersion = 7;
 const quizReferenceKey = 'quizReference';
+const quizUsesDocuments = mode => mode?.reference?.enabled === true && mode.reference.provider === 'documents';
 const quizHost = value => {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !['chatgpt.com', 'chat.openai.com', 'auth.openai.com', 'chromewebstore.google.com'].includes(url.hostname) && !(url.hostname === 'chrome.google.com' && url.pathname.startsWith('/webstore')); } catch { return false; }
 };
@@ -44,12 +45,12 @@ function quizSerial(windowId, operation) {
 
 function quizView(mode) {
   if (!mode) return { enabled: false };
-  const answers = mode.questions.filter(question => mode.answers[question.id]).map(question => ({ number: question.number, answer: mode.answers[question.id] })).sort((a, b) => a.number - b.number);
+  const answers = mode.questions.filter(question => mode.answers[question.id]).map(question => ({ number: question.number, answer: mode.answers[question.id], rawPage: question.rawPage })).sort((a, b) => a.number - b.number);
   const count = answers.length;
   return {
     enabled: mode.enabled, runId: mode.runId, tabId: mode.tabId, pageUrl: mode.sourceUrl, collapsed: mode.collapsed,
-    answers: answers.map(item => `${item.number}${item.answer}`).join(', '), referenceName: mode.reference?.enabled ? mode.reference.name || 'PDF đã đính kèm' : '',
-    status: mode.error || mode.waiting || (mode.job ? `Đã có ${count}/${mode.questions.length} • Đang xử lý ${mode.job.questions.map(question => question.number).join(', ')}` : mode.questions.length ? `Đã có ${count}/${mode.questions.length} đáp án • Đang theo dõi câu mới` : 'Đang chờ câu hỏi…'),
+    answers: answers.filter(item => !item.rawPage || item.answer !== '?' || !answers.some(other => other.answer !== '?')).map(item => item.rawPage ? item.answer : `${item.number}${item.answer}`).join(', '), referenceName: mode.reference?.enabled ? mode.reference.name || 'PDF đã đính kèm' : '',
+    status: mode.error || mode.waiting || (mode.job ? 'Đang phân tích trang…' : mode.questions.length ? `Đã có ${count}/${mode.questions.length} đáp án • Đang theo dõi câu mới` : 'Đang đọc trang để phân tích…'),
     error: !!mode.error, retryLabel: mode.job?.mayHaveSent && !mode.job.readAttempted ? 'Đọc lại ChatGPT' : 'Thử lại câu thiếu'
   };
 }
@@ -57,6 +58,10 @@ function quizView(mode) {
 async function quizSave(mode) {
   // Save before notifying a UI or dispatching anything that may send a prompt.
   await chrome.storage.session.set({ [quizKey(mode.windowId)]: mode });
+  if (chrome.action) await Promise.allSettled([
+    chrome.action.setBadgeText({ tabId: mode.tabId, text: !mode.enabled ? '' : mode.error ? '!' : mode.job || !mode.questions.some(question => mode.answers[question.id]) ? '…' : '' }),
+    chrome.action.setTitle({ tabId: mode.tabId, title: mode.enabled ? mode.error || 'Đáp án tự động đang hoạt động · Shift + Option + Q để dừng' : 'Mở ChatGPT Sidebar (Cmd+Shift+Y)' })
+  ]);
   await chrome.tabs.sendMessage(mode.tabId, { type: 'QUIZ_PAGE_STATE', state: quizView(mode) }).catch(() => {});
 }
 
@@ -80,12 +85,12 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
       await quizAttach(mode.tabId);
       return { success: true, state: quizView(mode) };
     }
-    const next = enabled === undefined ? !mode?.enabled : enabled === true;
+    const next = enabled === undefined ? !(mode?.enabled && (!sourceTab || mode.tabId === sourceTab.id)) : enabled === true;
     if (!next) {
       if (!mode) return { success: true, state: { enabled: false } };
       mode.enabled = false;
       await quizSave(mode);
-      if (mode.reference?.provider === 'documents') setTimeout(() => docCancelQuiz(mode).catch(console.error), 0);
+      if (quizUsesDocuments(mode)) setTimeout(() => docCancelQuiz(mode).catch(console.error), 0);
       if (mode.job && mode.chatTabId) await chrome.tabs.sendMessage(mode.chatTabId, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
       await quizRestoreDiscard(mode);
       return { success: true, state: quizView(mode) };
@@ -97,8 +102,12 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
     if (reference.enabled && !reference.url && reference.provider !== 'documents') throw new Error('Nguồn PDF chưa có cuộc chat hợp lệ. Kiểm tra Cài đặt → Tài liệu tham khảo.');
     const changedReference = (mode?.reference?.enabled ? mode.reference.revision : '') !== (reference.enabled ? reference.revision : '');
     if (mode && (!sameTab || changedReference)) {
-      if (mode.reference?.provider === 'documents') { const previous = mode; setTimeout(() => docCancelQuiz(previous).catch(console.error), 0); }
+      if (quizUsesDocuments(mode)) { const previous = mode; setTimeout(() => docCancelQuiz(previous).catch(console.error), 0); }
       if (mode.job && mode.chatTabId) await chrome.tabs.sendMessage(mode.chatTabId, { type: 'QUIZ_CHAT_CANCEL', jobId: mode.job.id, token: mode.job.token }, { frameId: 0 }).catch(() => {});
+      if (!sameTab) {
+        await chrome.tabs.sendMessage(mode.tabId, { type: 'QUIZ_PAGE_STATE', state: { ...quizView(mode), enabled: false } }).catch(() => {});
+        if (chrome.action) await chrome.action.setBadgeText({ tabId: mode.tabId, text: '' }).catch(() => {});
+      }
       await quizRestoreDiscard(mode);
     }
     mode = sameTab && !changedReference ? mode : { windowId, tabId: tab.id, frames: {}, questions: [], answers: {}, attempted: {} };
@@ -115,7 +124,7 @@ async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
     await quizSave(mode);
     try { await quizAttach(tab.id); }
     catch { mode.error = 'Chưa đọc được trang. Tải lại đề rồi bật lại chế độ.'; await quizSave(mode); }
-    if (mode.reference?.provider !== 'documents' && mode.chatTabId && !mode.error) {
+    if (!quizUsesDocuments(mode) && mode.chatTabId && !mode.error) {
       try { await quizEnsureChat(mode); }
       catch (error) { mode.error = error.message; await quizSave(mode); }
     }
@@ -131,7 +140,7 @@ async function quizEnsureChat(mode) {
 async function quizDispatch(mode, reading = false) {
   if (!mode.enabled || !mode.job) return;
   const job = mode.job;
-  if (mode.reference?.provider === 'documents') {
+  if (quizUsesDocuments(mode)) {
     mode.waiting = 'Đang chuẩn bị tài liệu hoặc chờ lượt ChatGPT…';
     await quizSave(mode);
     // Do not acquire the document lock while holding the quiz lock: document
@@ -198,15 +207,30 @@ async function quizSnapshot(message, sender) {
     }
     const [document] = await chrome.scripting.executeScript({ target: { tabId: mode.tabId, frameIds: [sender.frameId] }, func: () => location.href });
     if (document?.documentId !== sender.documentId || document?.result !== message.url) return { success: false, stale: true };
-    mode.frames[sender.frameId] = { documentId: sender.documentId, questions };
+    mode.frames[sender.frameId] = { documentId: sender.documentId, questions, pageText: typeof message.pageText === 'string' ? message.pageText.slice(0, 200000) : '', pageTooLong: message.pageTooLong === true };
     const merged = new Map();
     for (const frame of Object.values(mode.frames)) for (const question of frame.questions) merged.set(question.id, question);
     mode.questions = [...merged.values()].sort((a, b) => a.number - b.number);
-    mode.waiting = mode.questions.length ? '' : 'Chưa nhận diện được câu hỏi và lựa chọn trên trang này. Đang theo dõi nội dung mới.';
+    if (!mode.questions.length) {
+      const texts = [...new Set(Object.values(mode.frames).map(frame => frame.pageText.trim()).filter(Boolean))];
+      const text = texts.join('\n\n');
+      if (text.length > 200000 || Object.values(mode.frames).some(frame => frame.pageTooLong)) mode.error = 'Trang vượt 200.000 ký tự. Mở từng phần của trang rồi nhấn lại phím tắt để phân tích đầy đủ.';
+      else {
+        const parts = sidebarQuiz.pageParts(text);
+        for (const [index, part] of parts.entries()) {
+          const question = { number: index + 1, text: part, options: [], multiple: true, rawPage: true, pageParts: parts.length };
+          const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(question)));
+          question.id = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+          mode.questions.push(question);
+        }
+      }
+    }
+    mode.waiting = mode.questions.length ? 'Đang phân tích trang…' : 'Trang chưa có văn bản đọc được. Cần mở phần chứa câu hỏi; hình ảnh/video chưa được đọc.';
     const numbers = mode.questions.map(question => question.number);
     if (new Set(numbers).size !== numbers.length) mode.error = 'Có câu trùng số nhưng nội dung khác. Kiểm tra trang đề trước khi thử lại.';
     await quizSave(mode);
-    await quizPump(mode);
+    if (mode.questions[0]?.rawPage && !mode.job) setTimeout(() => quizWake(mode.windowId).catch(console.error), 500);
+    else await quizPump(mode);
     return { success: true };
   });
 }
@@ -297,7 +321,7 @@ async function handleQuizMessage(message, sender) {
   }
   if (message.type === 'QUIZ_OPEN_CHAT' || message.type === 'QUIZ_RETRY') {
     const mode = await quizGet(windowId);
-    if (mode?.enabled && mode.reference?.provider === 'documents' && (!fromPage || (mode.tabId === sender.tab.id && mode.runId === message.runId))) {
+    if (mode?.enabled && quizUsesDocuments(mode) && (!fromPage || (mode.tabId === sender.tab.id && mode.runId === message.runId))) {
       if (message.type === 'QUIZ_OPEN_CHAT') return handleDocumentMessage({ type: 'DOC_OPEN_CHAT', revisionId: mode.reference.revisionId }, { id: chrome.runtime.id, url: chrome.runtime.getURL('sidepanel/sidepanel.html') });
       const runtime = await docGetRuntime(mode.reference.revisionId);
       if (runtime?.error && runtime.current && runtime.current.id !== mode.job?.id && runtime.current.kind !== 'upload') throw new Error('Lượt hỏi trong Thư viện tài liệu đang lỗi. Mở Tài liệu và bấm Đọc lại hoặc Thử lại để tiếp tục.');
@@ -348,7 +372,7 @@ chrome.tabs.onRemoved.addListener(async tabId => {
     if (!key.startsWith('quizSession:') || !value.enabled || (value.tabId !== tabId && value.chatTabId !== tabId)) continue;
     await quizSerial(value.windowId, async () => {
       const mode = await quizGet(value.windowId);
-      if (mode.tabId === tabId) { mode.enabled = false; if (mode.reference?.provider === 'documents') setTimeout(() => docCancelQuiz(mode).catch(console.error), 0); await quizRestoreDiscard(mode); }
+      if (mode.tabId === tabId) { mode.enabled = false; if (quizUsesDocuments(mode)) setTimeout(() => docCancelQuiz(mode).catch(console.error), 0); await quizRestoreDiscard(mode); }
       else { mode.chatTabId = null; mode.chatWindowId = null; mode.chatRevealed = false; mode.error = 'Tab ChatGPT nền đã đóng. Bấm thử lại để mở lại và đọc tiếp.'; if (mode.job) mode.job.dispatched = false; }
       await quizSave(mode);
     });

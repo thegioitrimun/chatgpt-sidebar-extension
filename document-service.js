@@ -168,7 +168,17 @@ async function docEnqueueQuiz(mode) {
     if (existing && existing.quizRunId === mode.runId) return;
     if (existing) throw new Error('Lượt phân tích cũ chưa dừng. Thử lại sau ít giây.');
     runtime.quizRuns ||= {};
-    if (runtime.quizRuns[mode.windowId] !== mode.runId) { runtime.chatRevealed = false; runtime.quizRuns[mode.windowId] = mode.runId; }
+    if (runtime.quizRuns[mode.windowId] !== mode.runId) {
+      runtime.chatRevealed = false; runtime.quizRuns[mode.windowId] = mode.runId;
+      // A fresh hotkey run resumes preparation too. Otherwise a closed worker
+      // tab or an old upload error silently blocks every newly queued quiz.
+      // An uncertain turn retains sent=true and is read, never blindly resent.
+      if (runtime.error) {
+        await docCancelCurrent(runtime);
+        if (runtime.current) { runtime.current.dispatched = false; runtime.current.token = crypto.randomUUID(); }
+        runtime.error = ''; runtime.waiting = '';
+      }
+    }
     runtime.queue.push({ id: job.id, token: crypto.randomUUID(), kind: 'quiz', prompt: job.prompt, questions: job.questions, quizWindowId: mode.windowId, quizRunId: mode.runId, createdAt: job.createdAt, sent: job.mayHaveSent === true });
     await docSaveRuntime(runtime); docLater(reference.revisionId);
   });
@@ -212,6 +222,8 @@ async function docQuizEvent(job, type, extra = {}) {
     } else if (type === 'error') {
       mode.error = extra.error; mode.job.dispatched = false;
       if (extra.definitelyUnsent) { mode.job.mayHaveSent = false; for (const question of mode.job.questions) delete mode.attempted[question.id]; }
+    } else if (type === 'waiting') {
+      mode.waiting = extra.waiting;
     }
     await quizSave(mode);
     if (!mode.job) setTimeout(() => quizWake(mode.windowId).catch(console.error), 0);
@@ -241,13 +253,14 @@ async function docPump(id, wake = false) {
     const job = runtime.current;
     if (!job || (job.dispatched && !wake)) return;
     try {
-      const tab = await sidebarBackgroundChat.ensure(runtime, docSaveRuntime, { matches: url => !revision.conversationUrl || sidebarQuiz.conversationUrl(url) === revision.conversationUrl, version: 6 });
+      const tab = await sidebarBackgroundChat.ensure(runtime, docSaveRuntime, { matches: url => !revision.conversationUrl || sidebarQuiz.conversationUrl(url) === revision.conversationUrl, version: 7 });
       if (tab.status === 'loading') return;
       const response = await chrome.tabs.sendMessage(tab.id, { type: job.sent ? 'DOC_CHAT_READ' : 'DOC_CHAT_START', revisionId: id, runId: runtime.runId, jobId: job.id, token: job.token, kind: job.kind, file: job.file, prompt: job.prompt, questions: job.questions, referenceUrl: revision.conversationUrl || '' }, { frameId: 0 }).catch(() => null);
       if (response?.success) { job.dispatched = true; runtime.waiting = ''; }
       else if (response?.waiting || !response) { runtime.waiting = response?.draft ? 'Đang chờ ô ChatGPT trống; giữ nguyên bản nháp.' : 'Đang chờ ChatGPT tải xong hoặc hoàn tất lượt trước…'; job.dispatched = false; }
       else throw new Error(response.error || 'ChatGPT chưa sẵn sàng. Mở ChatGPT để kiểm tra đăng nhập và tài liệu.');
       await docSaveRuntime(runtime);
+      if (runtime.waiting) for (const queued of [runtime.current, ...runtime.queue]) if (queued?.kind === 'quiz') await docQuizEvent(queued, 'waiting', { waiting: runtime.waiting });
     } catch (error) { await docFail(runtime, error.message); }
   });
 }

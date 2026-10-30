@@ -45,13 +45,16 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(setupSidePanel);
 
 chrome.commands.onCommand.addListener((command, tab) => {
-  if (command !== 'toggle-quiz-mode' || !Number.isInteger(tab?.windowId)) return;
-  quizToggle(tab.windowId, undefined, tab).then(() => {
-    chrome.action.setBadgeText({ text: '', tabId: tab.id });
-    chrome.action.setTitle({ title: 'Mở ChatGPT Sidebar (Cmd+Shift+Y)', tabId: tab.id });
-  }).catch(error => {
-    chrome.action.setBadgeText({ text: '!', tabId: tab.id });
-    chrome.action.setTitle({ title: error.message, tabId: tab.id });
+  if (command !== 'toggle-quiz-mode') return;
+  (async () => {
+    // Some browser command events omit their tab argument. Resolve it without
+    // activating any tab or window rather than silently ignoring the hotkey.
+    tab ||= (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+    if (!Number.isInteger(tab?.windowId)) throw new Error('Không tìm thấy tab đang mở để phân tích.');
+    await quizToggle(tab.windowId, undefined, tab);
+  })().catch(error => {
+    chrome.action.setBadgeText({ text: '!', ...(tab?.id ? { tabId: tab.id } : {}) });
+    chrome.action.setTitle({ title: error.message, ...(tab?.id ? { tabId: tab.id } : {}) });
     console.error('[Đáp án tự động]', error);
   });
 });

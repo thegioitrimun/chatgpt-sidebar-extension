@@ -125,6 +125,41 @@ test('quiz jobs use the document queue and keep their source snapshot after swit
   assert.equal(h.context.quizView(h.session['quizSession:1']).answers, '3D?');
 });
 
+test('a fresh hotkey resumes an errored document queue by READ, then answers an unstructured page', async () => {
+  const h = harness(), source = await h.create('Nguồn đang dùng', true);
+  await h.call('DOC_ASK', { collectionId: source.id, text: 'Câu hỏi trước' }); await h.flush();
+  await h.chat('DOC_CHAT_WILL_SEND', source.revisionId);
+  await h.chat('DOC_CHAT_ERROR', source.revisionId, { error: 'Cửa sổ ChatGPT đã đóng.', definitelyUnsent: false });
+  const messageCount = h.messages.length;
+  await h.context.quizToggle(1, true, h.tabs.get(7));
+  await h.context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: h.session['quizSession:1'].runId, url: h.tabs.get(7).url, questions: [], pageText: 'Câu 7: 2+2? Phương án theo thứ tự: 3 | 4 | 5.' }, { id: 'test', tab: h.tabs.get(7), url: h.tabs.get(7).url, frameId: 0, documentId: 'doc1' });
+  await h.flush();
+  assert.equal(h.runtime(source.revisionId).error, '');
+  assert(h.messages.slice(messageCount).some(message => message.type === 'DOC_CHAT_READ'));
+  assert(!h.messages.slice(messageCount).some(message => message.type === 'DOC_CHAT_START'));
+  await h.chat('DOC_CHAT_RESULT', source.revisionId, { text: 'Kết quả câu hỏi trước.' }); await h.flush();
+  assert.equal(h.runtime(source.revisionId).current.kind, 'quiz');
+  await h.chat('DOC_CHAT_WILL_SEND', source.revisionId);
+  await h.chat('DOC_CHAT_RESULT', source.revisionId, { text: '7B?' }); await h.flush();
+  assert.equal(h.context.quizView(h.session['quizSession:1']).answers, '7B?');
+});
+
+test('no selected collection uses normal ChatGPT instead of looking up an undefined document revision', async () => {
+  const h = harness(); await h.context.docInit(); h.local.documentActiveCollectionId = null;
+  await h.context.quizToggle(1, true, h.tabs.get(7));
+  let mode = h.session['quizSession:1'];
+  assert.equal(mode.reference.enabled, false); assert.equal(mode.reference.provider, 'documents');
+  await h.context.handleQuizMessage({ type: 'QUIZ_SNAPSHOT', runId: mode.runId, url: h.tabs.get(7).url, questions: [], pageText: 'Câu 7: 2+2? Phương án theo thứ tự: 3 | 4 | 5.' }, { id: 'test', tab: h.tabs.get(7), url: h.tabs.get(7).url, frameId: 0, documentId: 'doc1' });
+  await h.flush(); mode = h.session['quizSession:1'];
+  assert.equal(mode.error, ''); assert(Number.isInteger(mode.chatTabId));
+  assert(!Object.keys(h.session).some(key => key.startsWith('docRuntime:')));
+  await h.context.quizWake(1); assert(h.messages.some(message => message.type === 'QUIZ_CHAT_START'));
+  const job = mode.job, sender = { id: 'test', tab: h.tabs.get(mode.chatTabId), url: h.tabs.get(mode.chatTabId).url, frameId: 0 };
+  await h.context.handleQuizMessage({ type: 'QUIZ_CHAT_WILL_SEND', jobId: job.id, token: job.token, runId: mode.runId }, sender);
+  await h.context.handleQuizMessage({ type: 'QUIZ_CHAT_RESULT', jobId: job.id, token: job.token, runId: mode.runId, text: '7B' }, sender);
+  assert.equal(h.context.quizView(h.session['quizSession:1']).answers, '7B');
+});
+
 test('direct questions have priority between quiz batches, and stopping quiz rejects its late answer', async () => {
   const h = harness(), source = await h.create('Nguồn', true);
   await h.context.quizToggle(1, true, h.tabs.get(7));
