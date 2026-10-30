@@ -364,24 +364,24 @@ test('the inactive popup is journaled and minimized before any prompt is dispatc
   assert.equal(h.windows.get(1).focused, true);
 });
 
-test('sized inactive popups avoid inheriting fullscreen on creation and legacy migration', async () => {
+test('fullscreen sources use an inactive tab without creating a popup, including legacy migration', async () => {
   const h = harness(), create = h.chrome.windows.create, shown = [];
   h.windows.get(1).state = 'fullscreen';
   h.chrome.windows.create = async options => {
     const window = await create(options);
-    // Regression contract verified on Brave/macOS with fullscreen source windows.
-    if (options.type !== 'popup' || options.state !== 'normal' || options.focused !== false || !options.width || !options.height) shown.push(window.id);
+    shown.push(window.id);
     return window;
   };
   await h.context.quizToggle(1, true, h.source); await h.snapshot([question(1)]);
   assert.deepEqual(shown, []);
-  assert.deepEqual(h.created[0], { url: 'about:blank', type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+  assert.deepEqual(structuredClone(h.created[0]), { windowId: 1, url: 'about:blank', active: false });
   assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
-  assert.equal(h.windows.get(h.mode().chatWindowId).focused, false);
+  assert.equal(h.mode().chatWindowId, null); assert.equal(h.tabs.get(21).active, false);
   assert(h.windowUpdates.every(update => update.id !== 1 && !Object.hasOwn(update, 'focused')));
   h.tabs.get(21).windowId = 1;
+  delete h.mode().chatBackgroundTab;
   await h.context.quizWake(1);
-  assert.deepEqual(h.created.at(-1), { tabId: 21, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+  assert.equal(h.created.length, 1); assert.equal(h.mode().chatBackgroundTab, true);
   assert.deepEqual(shown, []);
   assert(h.windowUpdates.every(update => update.id !== 1 && !Object.hasOwn(update, 'focused')));
   assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
@@ -392,8 +392,9 @@ test('sized inactive popups avoid inheriting fullscreen on creation and legacy m
 });
 
 
-test('automatic batches, retry, stop and restart reuse the minimized window without activation', async () => {
-  const h = harness(); h.windows.get(1).state = 'fullscreen';
+test('automatic batches, retry, stop and restart reuse their background transport without activation', async () => {
+ for (const sourceState of ['normal', 'fullscreen']) {
+  const h = harness(); h.windows.get(1).state = sourceState;
   const update = h.chrome.tabs.update;
   h.chrome.tabs.update = async (id, values) => { assert.equal(values.active, undefined); return update(id, values); };
   await h.context.quizToggle(1, true, h.source); await h.snapshot(Array.from({ length: 6 }, (_, i) => question(i + 1)));
@@ -403,11 +404,14 @@ test('automatic batches, retry, stop and restart reuse the minimized window with
   await h.context.handleQuizMessage({ type: 'QUIZ_RETRY', runId: h.mode().runId }, h.page());
   await h.chatEvent('QUIZ_CHAT_RESULT', { text: '6B' });
   await h.context.quizToggle(1, false); await h.context.quizToggle(1, true, h.source);
-  assert.equal(h.created.length, 1); assert.equal(h.created[0].focused, false);
-  assert.equal(h.source.active, true); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized');
+  assert.equal(h.created.length, 1);
+  if (sourceState === 'fullscreen') { assert.equal(h.created[0].active, false); assert.equal(h.mode().chatWindowId, null); }
+  else { assert.equal(h.created[0].focused, false); assert.equal(h.windows.get(h.mode().chatWindowId).state, 'minimized'); }
+  assert.equal(h.source.active, true);
   assert(h.windowUpdates.every(values => values.id !== 1 && !Object.hasOwn(values, 'focused')));
-  assert.equal(h.windows.get(1).state, 'fullscreen'); assert.equal(h.windows.get(1).focused, true);
+  assert.equal(h.windows.get(1).state, sourceState); assert.equal(h.windows.get(1).focused, true);
   assert.equal(h.mode().error, ''); assert.equal(Object.keys(h.mode().answers).length, 6);
+ }
 });
 
 

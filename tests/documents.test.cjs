@@ -14,7 +14,7 @@ function harness(snapshot) {
   const area = values => ({ async get(keys) { return structuredClone(keys === null ? values : Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(key => [key, values[key]]))); }, async set(value) { Object.assign(values, structuredClone(value)); }, async remove(keys) { for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key]; } });
   const chrome = {
     runtime: { id: 'test', getURL: file => `chrome-extension://test/${file}` }, storage: { local: area(local), session: area(session) },
-    tabs: { onUpdated: event(), onRemoved: event(), async get(id) { if (!tabs.has(id)) throw Error('Closed'); return structuredClone(tabs.get(id)); }, async query(query) { return [...tabs.values()].filter(tab => !query.windowId || tab.windowId === query.windowId); }, async update(id, values) { Object.assign(tabs.get(id), values); return structuredClone(tabs.get(id)); }, async reload() {}, async sendMessage(id, message) { messages.push({ tabId: id, ...structuredClone(message) }); return { success: true }; } },
+    tabs: { onUpdated: event(), onRemoved: event(), async create(options) { const tab = { id: ++next + 100, status: 'complete', ...options }; tabs.set(tab.id, tab); return structuredClone(tab); }, async get(id) { if (!tabs.has(id)) throw Error('Closed'); return structuredClone(tabs.get(id)); }, async query(query) { return [...tabs.values()].filter(tab => !query.windowId || tab.windowId === query.windowId); }, async update(id, values) { Object.assign(tabs.get(id), values); return structuredClone(tabs.get(id)); }, async reload() {}, async sendMessage(id, message) { messages.push({ tabId: id, ...structuredClone(message) }); return { success: true }; } },
     windows: { async create(options) { const id = ++next, tab = options.tabId ? tabs.get(options.tabId) : { id: id + 100, url: options.url, status: 'complete' }; Object.assign(tab, { windowId: id, active: true }); tabs.set(tab.id, tab); windows.set(id, { id, state: options.state, focused: options.focused }); return { ...windows.get(id), tabs: [structuredClone(tab)] }; }, async get(id) { return { ...windows.get(id), tabs: [...tabs.values()].filter(tab => tab.windowId === id) }; }, async update(id, values) { windowUpdates.push({ id, ...values }); Object.assign(windows.get(id), values); return windows.get(id); } },
     scripting: { async executeScript({ files }) { return files ? [] : [{ documentId: 'doc1', result: tabs.get(7).url }]; } }, commands: { async getAll() { return []; } }, alarms: { onAlarm: event(), create() {} }
   };
@@ -69,7 +69,8 @@ test('upload data is chunked, authorized to its current tab and cannot read arbi
   assert.equal(first.size, 262144); assert.equal(last.size, 37856); assert.equal(Buffer.from(first.data, 'base64').toString(), 'x'.repeat(262144));
   assert.equal((await h.chat('DOC_FILE_CHUNK', r.revisionId, { offset: 1 })).success, false);
   assert.equal((await h.chat('DOC_FILE_CHUNK', r.revisionId, { offset: 0 }, { id: 'test', tab: { id: 999 }, url: 'https://chatgpt.com/', frameId: 0 })).success, false);
-  assert.equal(h.windows.get(r.chatWindowId).state, 'minimized'); assert(!h.windowUpdates.some(update => update.id === 1 || update.focused !== undefined));
+  assert.equal(r.chatBackgroundTab, true); assert.equal(r.chatWindowId, null); assert.equal(h.tabs.get(r.chatTabId).active, false);
+  assert.equal(h.windows.get(1).state, 'fullscreen'); assert(!h.windowUpdates.some(update => update.id === 1 || update.focused !== undefined));
 });
 
 test('a collection stays unready until every attachment receives its own exact acknowledgement', async () => {

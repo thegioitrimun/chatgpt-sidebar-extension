@@ -2,10 +2,15 @@
 (() => {
 const isChat = url => { try { return ['https://chatgpt.com', 'https://chat.openai.com'].includes(new URL(url).origin); } catch { return false; } };
 function create(content) {
-  // Brave/macOS can inherit the active fullscreen Space even when a normal
-  // window requests minimized/unfocused. An explicitly sized, inactive popup
-  // avoids that transition; the caller journals it, then minimizes before work.
+  // A fullscreen source uses an inactive tab instead: Brave/macOS may activate
+  // a new native popup despite focused:false. Never create one in that case.
   return chrome.windows.create({ ...content, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
+}
+async function fullscreenSource(mode) {
+  const source = await chrome.windows.get(mode.windowId).catch(() => null);
+  if (source?.state === 'fullscreen') return source;
+  const focused = chrome.windows.getLastFocused && await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => null);
+  return focused?.state === 'fullscreen' ? focused : null;
 }
 async function minimize(mode, id) {
   // Brave/macOS can finish creating the native window AFTER create() resolves.
@@ -36,19 +41,28 @@ async function ensure(mode, save, { matches, version }) {
     if (tab && (starting || isChat(tab.pendingUrl || tab.url))) {
       if (!starting && !matches(tab.pendingUrl || tab.url)) throw new Error('Tab ChatGPT đã rời cuộc chat chứa PDF. Mở lại đúng cuộc chat tài liệu rồi bấm thử lại.');
       const window = await chrome.windows.get(tab.windowId, { populate: true });
-      if (tab.windowId === mode.windowId || window.tabs?.length !== 1 || window.tabs[0].id !== tab.id) {
-        // Migrate our legacy background tab, or detach it if the user moved it
-        // into a shared window. Never minimize a window containing other tabs.
-        const ownWindow = await create({ tabId: tab.id });
-        if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
-        mode.chatWindowId = ownWindow.id;
-        mode.chatWindowReadyAt = Date.now() + 800;
-        mode.chatRevealed = false;
-        await save(mode);
-        // Enforce state only: focused:false would bring the next window in the
-        // z-order forward. Creation can also return before state has settled.
-        await minimize(mode, ownWindow.id);
-        tab = await chrome.tabs.get(tab.id);
+      if (mode.chatBackgroundTab || tab.windowId === mode.windowId || window.tabs?.length !== 1 || window.tabs[0].id !== tab.id) {
+        if (mode.chatBackgroundTab || await fullscreenSource(mode)) {
+          // Keep this durable fallback across retries/restarts, including after
+          // exiting fullscreen. Never minimize the window containing the page.
+          mode.chatBackgroundTab = true;
+          mode.chatWindowId = null;
+          mode.chatWindowReadyAt = 0;
+          await save(mode);
+        } else {
+          // Migrate our legacy background tab, or detach it if the user moved
+          // it into a shared window. Never minimize a shared source window.
+          const ownWindow = await create({ tabId: tab.id });
+          if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
+          mode.chatWindowId = ownWindow.id;
+          mode.chatWindowReadyAt = Date.now() + 800;
+          mode.chatRevealed = false;
+          await save(mode);
+          // Enforce state only: focused:false would bring the next window in
+          // the z-order forward. Creation may return before state has settled.
+          await minimize(mode, ownWindow.id);
+          tab = await chrome.tabs.get(tab.id);
+        }
       } else {
         mode.chatWindowId = window.id;
         await save(mode);
@@ -72,6 +86,21 @@ async function ensure(mode, save, { matches, version }) {
       return tab;
     }
     if (tab) throw new Error('Tab xử lý đã đổi địa chỉ. Mở lại ChatGPT rồi bấm thử lại.');
+  }
+  const fullscreen = await fullscreenSource(mode);
+  if (fullscreen || mode.chatBackgroundTab) {
+    const tab = await chrome.tabs.create({ windowId: fullscreen?.id || mode.windowId, url: 'about:blank', active: false });
+    if (!Number.isInteger(tab?.id)) throw new Error('Chưa tạo được tab ChatGPT nền. Bấm thử lại.');
+    mode.chatBackgroundTab = true;
+    mode.chatWindowId = null;
+    mode.chatTabId = tab.id;
+    mode.chatWindowReadyAt = 0;
+    mode.chatStartUrl = isChat(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/';
+    mode.chatRevealed = false;
+    mode.chatBridgeVersion = version;
+    await save(mode);
+    await chrome.tabs.update(tab.id, { autoDiscardable: false });
+    return navigate(mode, tab, save);
   }
   // Load ChatGPT only after the empty window is minimized. Opening the site
   // directly can run its initial autofocus while the new popup is still visible.
