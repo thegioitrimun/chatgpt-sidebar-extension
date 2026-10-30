@@ -78,7 +78,7 @@ function extractQuizQuestions(settings = {}) {
       if (count > 26 || !sameGroup(root)) break;
       const text = clean(root.innerText);
       const title = clean(root.querySelector('legend, h1, h2, h3, h4, h5, h6')?.innerText) || labelledText(root);
-      if (text.length < 8 || text.length > 100000) continue;
+      if (!text || text.length > 100000) continue;
       if (root.matches(questionSelector) || questionNumber(text) || hasQuestionCue(title || text)) { roots.add(root); break; }
     }
   }
@@ -120,7 +120,7 @@ function extractQuizQuestions(settings = {}) {
     if (questionNumber(text)?.number === number) text = clean(text.slice(questionNumber(text).prefix.length));
     const instruction = clean(wholeText.match(/\((?:Chọn|Choose|Select)[^)]{0,160}\)/i)?.[0]);
     if (instruction && !text.includes(instruction)) text += ` ${instruction}`;
-    if (text.length < 5) continue;
+    if (!text) continue;
     const mediaScope = root.querySelector(textSelector) || root;
     const hasMedia = !!mediaScope.querySelector('img, canvas, video, audio, .MathJax svg, math') || wrappers.some(wrapper => !!wrapper.querySelector('img, canvas, video, audio, .MathJax svg, math'));
     addQuestion({ number, text, options, multiple: inputs.some(input => input.matches('input[type="checkbox"], [role="checkbox"]')) || /nhiều|multiple|all that apply|more than one/i.test(instruction), hasMedia }, root);
@@ -162,7 +162,7 @@ function extractQuizQuestions(settings = {}) {
   finishLine();
   let current = null;
   const flush = () => {
-    if (current && current.options.length >= 2 && current.options.length <= 26 && current.options.every(Boolean) && current.text.length >= 5) {
+    if (current && current.options.length >= 2 && current.options.length <= 26 && current.options.every(Boolean) && current.text) {
       addQuestion({ number: current.number, text: current.text, options: current.options, multiple: /chọn nhiều|multiple|all that apply|more than one/i.test(current.text), hasMedia: current.hasMedia }, current.element);
     }
     current = null;
@@ -195,6 +195,23 @@ function extractQuizQuestions(settings = {}) {
 
 // A page need not expose radio buttons or a recognizable quiz layout. Keep a
 // text fallback so the hotkey still submits it for the model to read.
+function isQuizPlaybackTime(node) {
+  const value = node.textContent.replace(/\s+/g, ' ').trim();
+  if (value.length > 40 || !/[:/]/.test(value) || /[^\d:/\s]/.test(value)) return false;
+  let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  for (let depth = 0; element && element !== document.body && depth < 3; depth++, element = element.parentElement) {
+    if (!/^(?:\d{1,2}:)?\d{1,2}:\d{2}\s*\/\s*(?:\d{1,2}:)?\d{1,2}:\d{2}$/.test(element.textContent.replace(/\s+/g, ' ').trim())) continue;
+    // A timestamp can itself be a legitimate question or choice. Only suppress
+    // a player's readout outside a question, beside an actual audio/video node.
+    if (element.closest('.que,.question,.question-item,.question-container,.quiz-question,.quiz_question,[data-question-id],[data-question-number],fieldset,[role="radiogroup"]')) return false;
+    const group = element.closest('[role="group"]');
+    if (group?.querySelector('input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"]')) return false;
+    let region = element;
+    for (let parent = 0; region && region !== document.body && parent < 6; parent++, region = region.parentElement) if (region.querySelector('video,audio')) return true;
+    return false;
+  }
+  return false;
+}
 function extractQuizPageText(settings = {}) {
   const root = settings.unlimited ? document.body || document.documentElement : document.querySelector('main, article, [role="main"]') || document.body;
   if (!root) return { pageText: '' };
@@ -212,7 +229,7 @@ function extractQuizPageText(settings = {}) {
   let node, length = 0;
   while ((node = walker.nextNode())) {
     const parent = node.parentElement, value = node.textContent.replace(/\s+/g, ' ').trim();
-    if (!value || !parent || parent.closest(excluded)) continue;
+    if (!value || !parent || parent.closest(excluded) || isQuizPlaybackTime(node)) continue;
     if (!visible(parent)) continue;
     lines.push(value); length += value.length + 1;
     if (!settings.unlimited && length > 200000) return { pageText: lines.join('\n').slice(0, 200000), pageTooLong: true };

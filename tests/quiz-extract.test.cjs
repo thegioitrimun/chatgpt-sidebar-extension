@@ -78,6 +78,21 @@ browserTest('reads numbered text questions with multiline ordered letter choices
   assert.deepEqual(questions, [{ number: 8, text: 'Chọn một số chẵn?', options: ['Một', 'Hai'], multiple: false, hasMedia: false }, { number: 15, text: 'Chọn nhiều đáp án đúng?', options: ['Hai và bốn', 'Ba', 'Sáu'], multiple: true, hasMedia: false }]);
 });
 
+browserTest('short stems retain their full choices in containers, native groups and text sheets', async () => {
+  const questions = await extract(`<div class="question"><h3>Câu 1</h3><div class="qtext">2+2?</div><label><input type="radio" name="q1">3</label><label><input type="radio" name="q1">4</label></div><fieldset><legend>3?</legend><label><input type="radio" name="q2">A</label><label><input type="radio" name="q2">B</label></fieldset><pre>Câu 9: X?\nA. Y\nB. Z</pre>`);
+  assert.deepEqual(questions.map(question => [question.number, question.text, question.options]), [[1, '2+2?', ['3', '4']], [2, '3?', ['A', 'B']], [9, 'X?', ['Y', 'Z']]]);
+});
+
+browserTest('player timestamps are excluded while timestamps used as question choices remain intact', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<main><div><video></video><span>14:29 / 22:12</span></div><fieldset><legend>Câu 1: Chọn mốc thời gian?</legend><label><input type="radio" name="q">10:00 / 11:00</label><label><input type="radio" name="q">12:00 / 13:00</label></fieldset></main>');
+    await page.addScriptTag({ content: source }); const result = await page.evaluate(() => extractQuizQuestions({ unlimited: true }));
+    assert(!result.pageText.includes('14:29 / 22:12')); assert(result.pageText.includes('10:00 / 11:00'));
+    assert.deepEqual(result.questions[0].options, ['10:00 / 11:00', '12:00 / 13:00']);
+  } finally { await page.close(); }
+});
+
 browserTest('combines structured questions and text sheets without duplicating control questions', async () => {
   const questions = await extract(`<div class="question"><h3>Question 3</h3><p>Which planet is nearest?</p><label><input type="radio" name="q">Mercury</label><label><input type="radio" name="q">Mars</label></div><pre>12. What is five plus one?\nA. Six\nB. Seven</pre>`);
   assert.deepEqual(questions.map(q => q.number), [3, 12]);

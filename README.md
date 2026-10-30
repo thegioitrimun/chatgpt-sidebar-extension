@@ -33,6 +33,8 @@ Tệp, lịch sử và thông tin bộ được lưu trong hồ sơ trình duy�
 
 ## Đáp án tự động và trang dài (1.9.0)
 
+**Sửa lỗi 1.9.1:** nhận diện cả câu hỏi ngắn như `2+2?` và `X?`, giữ đầy đủ lựa chọn. Đồng hồ, điểm số và trạng thái xử lý không làm quét lại toàn bộ trang. Mỗi tab chỉ truyền một bản chụp tại một thời điểm; cập nhật mới được gộp và không liên tục hủy lượt đang chuẩn bị. Câu đã chuẩn hóa được đối chiếu lại với văn bản mới để tái sử dụng khi nội dung còn nguyên. Phím tắt sẽ tiếp tục một phiên đang tạm dừng vì lỗi; sau khi đọc lại lượt chuẩn hóa, hàng đợi vẫn chuyển sang bước giải đáp án.
+
 **Shift + Option + Q** trên Mac (**Alt + Shift + Q** trên Windows/Linux) bật/tắt đáp án trên tab web đang mở, không giới hạn ở Vinmec và không tự mở sidebar. Nếu phím tắt chưa được gán hoặc bị trùng, đổi tại `brave://extensions/shortcuts` / `chrome://extensions/shortcuts`.
 
 - Đọc toàn bộ văn bản **đã tải**, kể cả dưới màn hình, cùng iframe có quyền truy cập. **Không tự cuộn**; khi bạn cuộn làm trang tải thêm hoặc đổi trang trong cùng tab, extension thu nhận nội dung mới. Không gửi nội dung ô nhập, phần ẩn hoặc đồng hồ có nhãn timer. Trang nội bộ trình duyệt không được hỗ trợ; iframe bị chặn và trang chỉ có ảnh, canvas hoặc video sẽ có trạng thái cần xử lý.

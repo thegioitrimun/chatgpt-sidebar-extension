@@ -3,22 +3,23 @@
   // instead of calling a closure whose chrome.runtime context was invalidated.
   try { globalThis.sidebarQuizPage?.dispose?.(); } catch {}
   document.getElementById('chatgpt-quiz-overlay')?.remove();
-  let state = { enabled: false }, signature = '', timer, host, root, verified = false, typographyFrame;
+  let state = { enabled: false }, signature = '', timer, host, root, verified = false, typographyFrame, scanning = false, rescan = false;
   const topFrame = window.parent === window;
   const send = (type, extra = {}) => chrome.runtime.sendMessage({ type, runId: state.runId, ...extra });
   function syncTypography() {
     const section = root?.querySelector('section');
     if (!section) return;
-    const visible = selector => [...document.querySelectorAll(selector)].filter(element => {
-      const style = getComputedStyle(element);
-      return element.textContent.trim() && element.getClientRects().length && style.visibility !== 'hidden';
-    });
-    let questions = visible('.qtext, .question-text, .question-title, .content-question, [data-question-text], legend');
-    if (!questions.length) questions = visible('.question-content');
-    const question = questions.find(element => {
-      const bounds = element.getBoundingClientRect();
-      return bounds.bottom > 0 && bounds.top < innerHeight;
-    }) || questions[0] || document.body || document.documentElement;
+    let question;
+    for (const selector of ['.qtext, .question-text, .question-title, .content-question, [data-question-text], legend', '.question-content']) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!element.textContent.trim() || !element.getClientRects().length || getComputedStyle(element).visibility === 'hidden') continue;
+        question ||= element;
+        const bounds = element.getBoundingClientRect();
+        if (bounds.bottom > 0 && bounds.top < innerHeight) { question = element; break; }
+      }
+      if (question) break;
+    }
+    question ||= document.body || document.documentElement;
     const style = getComputedStyle(question);
     for (const property of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'color']) section.style[property] = style[property];
   }
@@ -30,6 +31,7 @@
     if (!topFrame) return;
     const currentPage = (verified || (state.engine === 'analysis' && state.error)) && state.pageUrl === location.href;
     if (!state.enabled || state.collapsed || !currentPage) { host?.remove(); host = root = null; return; }
+    let created = false;
     if (!host?.isConnected) {
       host = document.createElement('div'); host.id = 'chatgpt-quiz-overlay';
       host.style.cssText = 'all:initial!important;position:fixed!important;inset:auto 12px 16px!important;z-index:2147483647!important;display:block!important;pointer-events:none!important;';
@@ -40,32 +42,39 @@
         .answers{font:inherit;color:inherit;letter-spacing:inherit;overflow-wrap:anywhere}`;
       root.append(style, document.createElement('section'));
       (document.body || document.documentElement).append(host);
+      created = true;
     }
-    const section = root.querySelector('section'); section.replaceChildren();
+    const section = root.querySelector('section');
     section.className = 'panel'; section.setAttribute('aria-label', 'Đáp án thử nghiệm');
-    const answers = document.createElement('div'); answers.className = 'answers';
+    let answers = section.querySelector('.answers');
+    if (!answers) { answers = document.createElement('div'); answers.className = 'answers'; answers.style.whiteSpace = 'pre-wrap'; section.append(answers); }
     const pageAnswers = verified ? state.answers : '';
-    answers.textContent = state.engine === 'analysis' ? [pageAnswers, state.progress || (!pageAnswers ? state.status : '')].filter(Boolean).join('\n') : state.error ? state.status : state.answers || state.status || 'Đang đọc trang để phân tích…';
-    answers.style.whiteSpace = 'pre-wrap'; answers.setAttribute('role', state.error ? 'alert' : 'status');
-    section.append(answers);
-    syncTypography();
+    const text = state.engine === 'analysis' ? [pageAnswers, state.progress || (!pageAnswers ? state.status : '')].filter(Boolean).join('\n') : state.error ? state.status : state.answers || state.status || 'Đang đọc trang để phân tích…';
+    if (answers.textContent !== text) answers.textContent = text;
+    answers.setAttribute('role', state.error ? 'alert' : 'status');
+    if (created) syncTypography();
   }
   function showError(error) {
     const message = error.message || 'Không kết nối được extension. Tải lại trang để tiếp tục.';
     state = { ...state, error: true, status: message, ...(state.engine === 'analysis' ? { progress: message } : {}) }; render();
   }
   function apply(next) {
-    if (next.runId !== state.runId || next.enabled !== state.enabled) { signature = ''; verified = false; }
+    const changed = next.runId !== state.runId || next.enabled !== state.enabled;
+    const resumed = state.paused && !next.paused;
+    if (changed) { signature = ''; verified = false; }
     state = next; render();
-    if (state.enabled) schedule();
+    if ((changed || resumed) && state.enabled) schedule();
   }
   function schedule() {
-    if (!state.enabled || timer) return;
+    if (!state.enabled || state.paused) return;
+    if (scanning) { rescan = true; return; }
+    if (timer) return;
     timer = setTimeout(scan, 600);
   }
   async function scan() {
     timer = null;
-    if (!state.enabled) return;
+    if (!state.enabled || state.paused) return;
+    scanning = true;
     const runId = state.runId;
     try {
       const snapshot = extractQuizQuestions({ unlimited: state.engine === 'analysis' });
@@ -73,13 +82,15 @@
       if (next === signature) return;
       const response = state.engine === 'analysis' ? await transmit(snapshot, runId) : await send('QUIZ_SNAPSHOT', snapshot);
       if (!response?.success && !response?.stale) throw new Error(response?.error || 'Chưa đọc được câu hỏi.');
-      if (response?.success && state.runId === runId && location.href === snapshot.url) { signature = next; verified = true; render(); }
+      if (response?.success && state.runId === runId && location.href === snapshot.url) { signature = next; verified = true; render(); scheduleTypography(); }
     } catch (error) { if (state.runId === runId) showError(error); }
+    finally { scanning = false; if (rescan) { rescan = false; schedule(); } }
   }
   async function transmit(snapshot, runId) {
     const serialized = JSON.stringify(snapshot), bytes = new TextEncoder().encode(serialized);
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
-    const begin = await send('ANALYSIS_CAPTURE_BEGIN', { url: snapshot.url, hash, bytes: bytes.length });
+    if (!state.enabled || state.runId !== runId || snapshot.url !== location.href) return { success: false, stale: true };
+    const begin = await send('ANALYSIS_CAPTURE_BEGIN', { runId, url: snapshot.url, hash, bytes: bytes.length });
     if (!begin?.success || begin.duplicate) return begin;
     let sequence = begin.next || 0;
     while (sequence * 45000 < bytes.length && state.enabled && state.runId === runId && snapshot.url === location.href) {
@@ -87,7 +98,7 @@
       let binary = ''; for (let index = 0; index < chunk.length; index += 8192) binary += String.fromCharCode(...chunk.subarray(index, index + 8192));
       let response;
       for (let attempt = 0; attempt < 3; attempt++) {
-        try { response = await send('ANALYSIS_CAPTURE_CHUNK', { captureId: begin.captureId, sequence, data: btoa(binary) }); if (response?.success) break; }
+        try { response = await send('ANALYSIS_CAPTURE_CHUNK', { runId, captureId: begin.captureId, sequence, data: btoa(binary) }); if (response?.success) break; }
         catch (error) { if (attempt === 2) throw error; }
       }
       if (!response?.success) throw Error(response?.error || 'Không lưu được gói trang. Phần đã nhận vẫn được giữ.');
@@ -95,10 +106,10 @@
       sequence = response.next;
     }
     if (!state.enabled || state.runId !== runId || snapshot.url !== location.href) return { success: false, stale: true };
-    return send('ANALYSIS_CAPTURE_COMMIT', { captureId: begin.captureId });
+    return send('ANALYSIS_CAPTURE_COMMIT', { runId, captureId: begin.captureId });
   }
   async function refresh() {
-    try { const response = await send('QUIZ_PAGE_READY'); if (response?.success) { signature = ''; apply(response.state); } }
+    try { const response = await send('QUIZ_PAGE_READY'); if (response?.success) { signature = ''; apply(response.state); schedule(); } }
     catch (error) { if (state.enabled) showError(error); }
   }
   function receiveState(message, sender, respond) {
@@ -106,7 +117,19 @@
     respond({ success: true }); apply(message.state);
   }
   chrome.runtime.onMessage.addListener(receiveState);
-  const observer = new MutationObserver(schedule);
+  // Only page-content changes can invalidate a snapshot. Progress/answer state
+  // and ticking UI must not trigger another full DOM walk or a parallel upload.
+  const ignored = 'script,style,noscript,nav,footer,[hidden],[aria-hidden="true"],[role="timer"],time,.timer,.countdown,.que .state,.que .grade,.questionflag,.question-flag,.flag,#chatgpt-quiz-overlay';
+  const ignoredNode = node => (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest(ignored) || isQuizPlaybackTime(node);
+  const observer = new MutationObserver(records => {
+    if (!state.enabled) return;
+    const changed = records.some(record => {
+      if (ignoredNode(record.target)) return false;
+      if (record.type === 'characterData') return true;
+      return [...record.addedNodes, ...record.removedNodes].some(node => !ignoredNode(node) && (node.nodeType === Node.ELEMENT_NODE || node.textContent.trim()));
+    });
+    if (changed) { schedule(); scheduleTypography(); }
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   // SPA URL changes need not replace any DOM node.
   let previousUrl = location.href;
@@ -114,7 +137,7 @@
   window.addEventListener('resize', scheduleTypography);
   window.addEventListener('scroll', scheduleTypography, { passive: true });
   globalThis.sidebarQuizPage = { refresh, dispose() {
-    state = { enabled: false }; clearTimeout(timer); clearInterval(interval); observer.disconnect(); host?.remove();
+    state = { enabled: false }; rescan = false; clearTimeout(timer); clearInterval(interval); observer.disconnect(); host?.remove();
     cancelAnimationFrame(typographyFrame);
     window.removeEventListener('resize', scheduleTypography); window.removeEventListener('scroll', scheduleTypography);
     try { chrome.runtime.onMessage.removeListener(receiveState); } catch {}

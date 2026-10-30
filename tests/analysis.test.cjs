@@ -2,6 +2,73 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { harness, questions, pageText } = require('./support/analysis-harness.cjs');
 
+test('short recognized questions go straight to the answer queue and retain every answer', async () => {
+  const h = harness(), units = [{ number: 1, text: '2+2?', options: ['3', '4'] }, { number: 9, text: 'X?', options: ['Y', 'Z'] }];
+  await h.start(); await h.capture({ questions: units, pageText: 'Câu 1: 2+2? A. 3 B. 4 Câu 9: X? A. Y B. Z' }); await h.flush(1000);
+  assert.equal(h.task().stage, 'solve'); assert.equal(h.task().unitIds.length, 2); assert.equal([...h.stores.tasks.values()].filter(task => task.stage === 'normalize').length, 0);
+  await h.answerAll(); const state = (await h.call('ANALYSIS_GET_STATE')).state;
+  assert.equal(state.answers, '1B, 9B'); assert.equal(state.completedCount, 2); assert.equal(state.completed, true);
+});
+
+test('continuous page updates cannot postpone the initial answer queue indefinitely', async () => {
+  const h = harness(), units = [{ number: 1, text: '2+2?', options: ['3', '4'] }]; await h.start();
+  await h.capture({ questions: units, pageText: `00:59 ${pageText(units)}` });
+  for (let tick = 58; tick >= 54; tick--) { await h.flush(300); await h.capture({ questions: units, pageText: `00:${tick} ${pageText(units)}` }); }
+  assert(h.task(), 'a ticking page must still reach its first task'); assert.equal(h.task().stage, 'solve');
+  assert.equal(h.stores.tasks.get(h.task().id).status, 'sending');
+  await h.answerAll(); assert.equal((await h.call('ANALYSIS_GET_STATE')).state.answers, '1B');
+});
+
+test('an unsent normalization survives page updates and its verified questions answer without restarting extraction', async () => {
+  const h = harness(), raw = 'Câu 7: 2+2? A. Ba B. Bốn'; await h.start(); await h.capture({ pageText: `00:59 ${raw}` }); await h.flush(1000);
+  const first = h.task(); assert.equal(first.stage, 'normalize');
+  await h.capture({ pageText: `00:58 ${raw}` }); await h.flush(1000);
+  assert.equal(h.task().id, first.id, 'new snapshots must not cancel a turn while ChatGPT is preparing it');
+  await h.chat('DOC_CHAT_WILL_SEND'); await h.chat('DOC_CHAT_RESULT', { text: JSON.stringify({ units: [{ number: 7, text: '2+2?', options: ['Ba', 'Bốn'], complete: true }] }) }); await h.flush();
+  assert.equal(h.task().stage, 'solve', 'normalization must reach solving before a pending refresh rebuilds the queue');
+  await h.answerAll(); await h.flush(1000);
+  assert.equal((await h.call('ANALYSIS_GET_STATE')).state.answers, '7B');
+  assert.equal([...h.stores.tasks.values()].filter(task => task.stage === 'normalize').length, 1);
+  assert.equal(h.messages.filter(message => message.type === 'DOC_CHAT_START').length, 2);
+});
+
+test('the hotkey resumes an errored paused session instead of silently switching it off', async () => {
+  const h = harness(), units = questions(1), payload = { questions: units, pageText: pageText(units) }; await h.start(); await h.capture(payload); await h.flush(1000);
+  await h.chat('DOC_CHAT_ERROR', { error: 'Please log in', definitelyUnsent: true }); assert.equal(h.current().paused, true);
+  const runId = h.current().runId; await h.context.analysisToggle(1, undefined, h.tabs.get(7));
+  assert.equal(h.current().enabled, true); assert.equal(h.current().paused, false); assert.notEqual(h.current().runId, runId);
+  await h.capture(payload); await h.flush(); await h.answerAll(); assert.equal((await h.call('ANALYSIS_GET_STATE')).state.answers, '1B');
+});
+
+test('resuming unstructured questions still advances from normalization into solving', async () => {
+ for (const alreadyNormalized of [false, true]) {
+  const h = harness(), payload = { pageText: 'Câu 7: 2+2? A. Ba B. Bốn' }, reply = JSON.stringify({ units: [{ number: 7, text: '2+2?', options: ['Ba', 'Bốn'], complete: true }] });
+  await h.start(); await h.capture(payload); await h.flush(1000); await h.chat('DOC_CHAT_WILL_SEND');
+  if (alreadyNormalized) await h.chat('DOC_CHAT_RESULT', { text: reply });
+  await h.call('ANALYSIS_STOP'); await h.context.analysisToggle(1, undefined, h.tabs.get(7)); await h.capture(payload); await h.flush();
+  if (!alreadyNormalized) { await h.chat('DOC_CHAT_RESULT', { text: reply }); await h.flush(); }
+  assert.equal(h.task()?.stage, 'solve', 'a recovered extraction must not be marked completed without solving');
+  await h.answerAll(); assert.equal((await h.call('ANALYSIS_GET_STATE')).state.answers, '7B');
+ }
+});
+
+test('a pending page refresh preserves queued batches and their network retry backoff', async () => {
+  const h = harness(), units = questions(10); await h.start(); await h.capture({ questions: units, pageText: `00:59 ${pageText(units)}` }); await h.flush(1000);
+  const first = h.task(); await h.chat('DOC_CHAT_ERROR', { error: 'Network disconnected', definitelyUnsent: true });
+  await h.capture({ questions: units, pageText: `00:58 ${pageText(units)}` }); await h.flush(1000);
+  assert.notEqual(h.task().id, first.id); assert.equal(h.stores.tasks.get(first.id).attempts, 1); assert.equal(h.stores.tasks.get(first.id).status, 'queued');
+  await h.answerAll(); await h.flush(1000); assert.equal(h.task().id, first.id); await h.answerAll(); await h.flush(1000);
+  const state = (await h.call('ANALYSIS_GET_STATE')).state; assert.equal(state.completedCount, 10); assert.equal(state.completed, true);
+  assert.equal(h.messages.filter(message => message.type === 'DOC_CHAT_START').length, 3);
+});
+
+test('an earlier queued wake cannot swallow the timeout for a missing iframe during resume', async () => {
+  const h = harness(), units = questions(1), payload = { questions: units, pageText: pageText(units) }; await h.start(); await h.capture(payload); await h.capture({ questions: questions(1, 30), pageText: pageText(questions(1, 30)) }, 5); await h.flush(1000);
+  await h.call('ANALYSIS_STOP'); h.context.analysisLater(h.current().id, 100); await h.call('ANALYSIS_RESUME'); await h.capture(payload); await h.flush(100);
+  assert.equal(h.current().resumeVerifying, true); await h.flush(30000);
+  assert.equal(h.current().paused, true); assert.match(h.current().error, /iframe/);
+});
+
 for (const count of [10, 100, 500]) test(`durable capture keeps all ${count} questions on ${count * 2000}+ character pages`, async () => {
   const h = harness(), units = questions(count, 2000); await h.start(); await h.capture({ questions: units, pageText: pageText(units) }); await h.flush(1000);
   assert.equal(h.current().activeUnitIds.length, count); assert.equal(h.task().stage, 'solve');

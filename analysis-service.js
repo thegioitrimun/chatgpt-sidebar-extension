@@ -12,8 +12,10 @@ const analysisSession = id => analysisStore().get('sessions', id);
 const analysisTask = id => analysisStore().get('tasks', id);
 const analysisPointer = async windowId => (await chrome.storage.session.get(quizKey(windowId)))[quizKey(windowId)];
 function analysisLater(id, delay = 0) {
-  clearTimeout(analysisTimers.get(id));
-  analysisTimers.set(id, setTimeout(() => { analysisTimers.delete(id); analysisPump(id).catch(error => analysisFatal(id, error.message)); }, delay));
+  const at = Date.now() + Math.max(0, delay), pending = analysisTimers.get(id);
+  if (pending?.at <= at) return;
+  clearTimeout(pending?.timer);
+  analysisTimers.set(id, { at, timer: setTimeout(() => { analysisTimers.delete(id); analysisPump(id).catch(error => analysisFatal(id, error.message)); }, Math.max(0, delay)) });
 }
 async function analysisInit() {
   if (!analysisInitialization) analysisInitialization = (async () => {
@@ -80,7 +82,7 @@ async function analysisToggle(windowId, enabled, sourceTab, expectedRunId) {
   const pointer = await analysisPointer(windowId), previous = pointer?.engine === 'analysis' && await analysisSession(pointer.sessionId);
   if (expectedRunId && previous?.runId !== expectedRunId) return { success: false, stale: true };
   const tab = sourceTab || await getActiveTab(windowId);
-  const next = enabled === undefined ? !(previous?.enabled && !previous.requiresNew && previous.tabId === tab?.id) : enabled === true;
+  const next = enabled === undefined ? !(previous?.enabled && !previous.paused && !previous.requiresNew && previous.tabId === tab?.id) : enabled === true;
   if (!next) { if (previous) await analysisStop(previous.id); return { success: true, state: await analysisView(previous && await analysisSession(previous.id)) }; }
   if (!tab?.id || !quizHost(tab.url)) throw Error('Mở trang HTTP/HTTPS có văn bản rồi nhấn Shift + Option + Q. Trang nội bộ trình duyệt không cho phép đọc.');
   const sourceRef = await analysisSource(await quizReferenceGet());
@@ -158,7 +160,11 @@ async function analysisCapture(message, sender) {
         previous.documentId = sender.documentId;
         if (session.resumeVerifying) {
           session.verifiedFrames = [...new Set([...session.verifiedFrames, String(sender.frameId)])];
-          if (Object.keys(session.frames).every(frame => session.verifiedFrames.includes(frame))) { session.resumeVerifying = false; session.phase = 'running'; session.status = ''; analysisLater(session.id); }
+          if (Object.keys(session.frames).every(frame => session.verifiedFrames.includes(frame))) {
+            const tasks = (await analysisStore().all('tasks', session.id)).filter(task => task.snapshotId === session.snapshotId && task.status !== 'cancelled');
+            const normalizing = tasks.some(task => task.stage === 'normalize' && !['complete', 'failed'].includes(task.status)) || (tasks.some(task => task.stage === 'normalize') && !tasks.some(task => ['solve', 'repair'].includes(task.stage)));
+            session.resumeVerifying = false; session.phase = normalizing ? 'normalizing' : 'answering'; session.status = ''; analysisLater(session.id);
+          }
         }
         await analysisSave(session); return { success: true, duplicate: true };
       }
@@ -199,16 +205,21 @@ async function analysisCapture(message, sender) {
     if (actual?.documentId !== sender.documentId || actual?.result !== capture.url) return { success: false, stale: true };
     capture.payload = payload; capture.state = 'complete';
     const outgoing = await analysisTask(session.currentTaskId);
-    // A sent turn must finish or be read back before rebuilding the queue.
-    // Keep its result as cache only when navigating to a different page.
-    if (!outgoing?.sent) {
+    const navigated = sender.frameId === 0 && session.url !== capture.url;
+    // Keep the current turn even while it is still preparing/loading ChatGPT.
+    // A live clock or progress counter must not continually cancel unsent work.
+    // Explicit navigation can cancel an unsent turn; sent turns are read once.
+    if (navigated && !outgoing?.sent) {
       await analysisCancelTransport(session, outgoing);
-      session.snapshotId = crypto.randomUUID(); session.currentTaskId = null;
+      session.currentTaskId = null;
     }
-    if (sender.frameId === 0 && session.url !== capture.url) { session.frames = {}; session.activeUnitIds = []; }
+    if (navigated) { session.frames = {}; session.activeUnitIds = []; session.rebuildForNavigation = true; }
     session.frames[sender.frameId] = { captureId: capture.id, hash: capture.hash, url: capture.url, documentId: sender.documentId };
     if (sender.frameId === 0) { session.url = capture.url; session.title = payload.title || session.title; }
-    session.status = 'Đang chuẩn bị câu hỏi từ bản chụp đã lưu…'; session.prepareAt = Date.now() + 900;
+    if (!outgoing) session.status = 'Đang chuẩn bị câu hỏi từ bản chụp đã lưu…';
+    // Coalesce new captures behind the first deadline instead of extending it
+    // forever on a page which updates more frequently than the debounce delay.
+    session.prepareAt ||= Date.now() + 900;
     await analysisSave(session, [{ store: 'captures', value: capture }, ...chunks.map(item => ({ store: 'chunks', remove: item.id }))]);
     analysisLater(session.id, 950); return { success: true };
   });
@@ -226,24 +237,38 @@ function analysisNewTask(session, stage, extra = {}) {
 }
 const analysisTaskOrder = (a, b) => (a.order || 0) - (b.order || 0) || a.createdAt - b.createdAt;
 async function analysisPrepare(session) {
-  if (session.resumeVerifying || session.prepareAt > Date.now()) return false;
-  if (!session.prepareAt) return true;
+  if (session.resumeVerifying) return false;
   const pending = await analysisTask(session.currentTaskId);
-  if (pending?.sent && !['complete', 'failed', 'cancelled'].includes(pending.status)) return true;
+  if (pending && !['complete', 'failed', 'cancelled'].includes(pending.status)) return true;
+  // Drain the pinned snapshot before applying coalesced updates. This also
+  // preserves retry backoff and all remaining batches on a continuously
+  // updating page, instead of cancelling/recreating them on every DOM tick.
+  if (session.prepareAt && ['normalizing', 'answering'].includes(session.phase) && !session.rebuildForNavigation) return true;
+  if (session.prepareAt > Date.now()) return false;
+  if (!session.prepareAt) return true;
   const oldCurrent = await analysisTask(session.currentTaskId); await analysisCancelTransport(session, oldCurrent);
+  const previousUnits = await analysisUnits(session);
+  const cachedResults = new Map((await analysisStore().all('results', session.id)).map(result => [result.cacheKey, result]));
   const changes = [], oldTasks = await analysisStore().all('tasks', session.id);
   for (const task of oldTasks) if (!['complete', 'failed', 'cancelled'].includes(task.status)) { task.status = 'cancelled'; changes.push({ store: 'tasks', value: task }); }
   session.snapshotId = crypto.randomUUID(); session.currentTaskId = null; session.activeUnitIds = []; session.prepareAt = 0; session.phase = 'normalizing'; session.error = ''; session.waiting = ''; session.status = '';
+  session.rebuildForNavigation = false;
   const frames = Object.entries(session.frames).sort((a, b) => Number(a[0]) - Number(b[0]));
   session.coverage = [];
   for (const [frameOrder, [, info]] of frames.entries()) {
     const capture = await analysisStore().get('captures', info.captureId); if (!capture?.payload) continue;
     if (!capture.payload.pageText.trim() && capture.payload.mediaCount) session.coverage.push('Trang chỉ có hình, canvas hoặc video chưa đọc được.');
     for (const frame of capture.payload.iframes || []) if (!frame.readable || (frame.url && !frames.some(([, loaded]) => loaded.url === frame.url))) session.coverage.push('Một iframe chưa đọc được hoặc chưa được cấp quyền.');
-    const plan = sidebarAnalysis.planCapture(capture.payload);
+    // Re-locate previously model-extracted questions against the actual new
+    // text. They can be reused only where the same stem/options still exist;
+    // shared context is recomputed from the new snapshot before cache lookup.
+    const known = capture.payload.questions.length ? capture.payload.questions : previousUnits.filter(unit => unit.frameId === capture.frameId && unit.complete).sort((a, b) => a.start - b.start);
+    const plan = sidebarAnalysis.planCapture({ ...capture.payload, questions: known });
     for (const question of plan.units) {
       const unit = await analysisUnit(session, question, capture, question.start, frameOrder);
       changes.push({ store: 'units', value: unit }); session.activeUnitIds.push(unit.unitId);
+      const cached = cachedResults.get(unit.cacheKey);
+      if (cached) changes.push({ store: 'results', value: { ...cached, id: `${session.id}:${unit.unitId}`, unitId: unit.unitId } });
     }
     for (const gap of plan.gaps) for (const segment of sidebarAnalysis.segments(gap.text)) {
       changes.push({ store: 'tasks', value: analysisNewTask(session, 'normalize', { captureId: capture.id, start: gap.start + segment.start, end: gap.start + segment.end, frameOrder }) });
@@ -325,6 +350,7 @@ async function analysisPump(id, wake = false) {
     if (!session?.enabled || session.paused || session.browserId !== analysisBrowserId || session.expiresAt <= Date.now()) return;
     if (session.resumeVerifying) {
       if (Date.now() >= session.verifyDeadline) { session.paused = true; session.error = 'Chưa đọc lại được đầy đủ các iframe của bản chụp. Kiểm tra quyền truy cập và mở đúng trang rồi Tiếp tục.'; await analysisSave(session); }
+      else analysisLater(id, Math.max(50, session.verifyDeadline - Date.now()));
       return;
     }
     if (!await analysisPrepare(session)) { analysisLater(id, Math.max(50, session.prepareAt - Date.now())); return; }
@@ -337,7 +363,9 @@ async function analysisPump(id, wake = false) {
       const delayed = tasks.filter(task => task.status === 'queued' && !task.blocked && task.nextAt > Date.now());
       if (delayed.length) { analysisLater(id, Math.max(50, Math.min(...delayed.map(task => task.nextAt)) - Date.now())); return; }
       session.currentTaskId = null; session.phase = 'completed'; session.status = session.activeUnitIds.length ? '' : tasks.some(task => task.status === 'failed') ? 'Không chuẩn hóa được một số phần. Bấm Thử lại phần lỗi.' : 'Không tìm thấy câu hỏi trong văn bản đã tải.';
-      await analysisSave(session); return;
+      await analysisSave(session);
+      if (session.prepareAt) analysisLater(id, Math.max(0, session.prepareAt - Date.now()));
+      return;
     }
     session.currentTaskId = task.id;
     if (task.dispatched && !wake) return;
@@ -388,7 +416,8 @@ async function analysisTransportEvent(id, taskId, type, data = {}) {
         const parsed = sidebarAnalysis.extracted(text, data.text);
         for (const question of parsed.valid) {
           const unit = await analysisUnit(session, { ...question, end: question.end + task.start }, capture, question.start + task.start, task.frameOrder);
-          changes.push({ store: 'units', value: unit }); if (!session.activeUnitIds.includes(unit.unitId)) session.activeUnitIds.push(unit.unitId);
+          changes.push({ store: 'units', value: unit });
+          if (capture.url === session.frames[capture.frameId]?.url && !session.activeUnitIds.includes(unit.unitId)) session.activeUnitIds.push(unit.unitId);
           if (!question.complete && !task.boundary) {
             const full = sidebarAnalysis.normalize(capture.payload.pageText), start = question.start + task.start;
             const next = /(?:câu(?: hỏi)?|question)\s*\d+\s*[:.)]/ig; next.lastIndex = Math.max(start + question.text.length, start + 20);
