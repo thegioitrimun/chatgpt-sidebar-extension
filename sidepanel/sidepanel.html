@@ -307,6 +307,19 @@
         <button id="btn-quiz-open-chat" class="btn-secondary" type="button">Mở ChatGPT</button>
         <button id="btn-quiz-retry" class="btn-secondary" type="button" hidden>Thử lại câu thiếu</button>
       </div>
+      <section class="reference-settings" aria-labelledby="analysis-saved-title">
+        <h3 id="analysis-saved-title">Phiên phân tích đã lưu</h3>
+        <p class="reference-note">Nội dung và tiến độ lưu trên máy tối đa 7 ngày. Mở lại Brave không tự gửi tiếp. Không tự cuộn trang; cuộn hoặc đổi trang để đọc thêm nội dung đã tải.</p>
+        <label class="reference-label" for="analysis-session">Chọn phiên</label>
+        <select id="analysis-session" class="reference-input" aria-label="Phiên phân tích đã lưu"></select>
+        <p id="analysis-saved-status" class="reference-note" role="status" aria-live="polite"></p>
+        <div class="reference-actions analysis-actions">
+          <button id="analysis-resume" class="btn-secondary" type="button">Tiếp tục</button>
+          <button id="analysis-retry" class="btn-secondary" type="button">Thử lại phần lỗi</button>
+          <button id="analysis-stop" class="btn-secondary" type="button">Dừng</button>
+          <button id="analysis-delete" class="btn-secondary" type="button">Xóa phiên</button>
+        </div>
+      </section>
       <section class="reference-settings" aria-labelledby="reference-title">
         <h3 id="reference-title">Thư viện tài liệu</h3>
         <p id="reference-status" class="reference-note">Chưa chọn bộ tài liệu.</p>
@@ -345,6 +358,7 @@
 
   <script src="../document-store.js"></script>
   <script src="documents.js"></script>
+  <script src="analysis.js"></script>
   <script src="sidepanel.js"></script>
   <script src="form-fill.js"></script>
 </body>

@@ -57,7 +57,7 @@ function harness(stored = {}, referenceStore = {}) {
     scripting: { async executeScript({ files }) { return files ? [] : [{ documentId: 'doc1', result: source.url }]; } },
     alarms: { onAlarm: event(), create() {} }
   };
-  const context = vm.createContext({ chrome, crypto: webcrypto, TextEncoder, Uint8Array, URL, console, setTimeout: () => 0, getActiveTab: async () => source });
+  const context = vm.createContext({ chrome, crypto: webcrypto, TextEncoder, Uint8Array, URL, console, setTimeout: (fn, delay) => delay >= 700 && delay <= 800 ? setTimeout(fn, 0) : 0, getActiveTab: async () => source });
   for (const file of ['quiz-common.js', 'background-chat.js', 'quiz-service.js']) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, { filename: file });
   const page = () => ({ id: 'test', tab: source, url: source.url, frameId: 0, documentId: 'doc1' });
   const chat = () => ({ id: 'test', tab: tabs.get(mode()?.chatTabId || 21), url: 'https://chatgpt.com/c/fixture', frameId: 0, documentId: 'chat1' });

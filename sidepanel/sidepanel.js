@@ -481,6 +481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         refreshQuizState().catch(() => {});
       }
       if (area !== 'local') return;
+      if (changes.analysisTick) refreshQuizState().catch(() => {});
       if (changes.documentLibraryTick || changes.documentActiveCollectionId) { send({ type: 'QUIZ_GET_REFERENCE' }).then(result => applyReference(result?.reference)).catch(() => {}); }
       receivePending(changes[`pendingPrompt:${windowId}`]?.newValue).catch((error) => toast(error.message));
       if (changes.autoAnalyzeOnNavigation && (changes.autoAnalyzeOnNavigation.newValue === true) !== autoAnalyzeEnabled) applyAutomaticSetting(changes.autoAnalyzeOnNavigation.newValue);

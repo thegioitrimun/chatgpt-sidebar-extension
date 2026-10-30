@@ -1,4 +1,4 @@
-importScripts('form-json.js', 'form-service.js', 'quiz-common.js', 'background-chat.js', 'document-store.js', 'quiz-service.js', 'document-service.js');
+importScripts('form-json.js', 'form-service.js', 'quiz-common.js', 'background-chat.js', 'document-store.js', 'quiz-service.js', 'document-service.js', 'analysis-common.js', 'analysis-store.js', 'analysis-service.js');
 // Manifest V3 service worker. Durable prompts survive a cold side panel.
 const CHATGPT_URL = 'https://chatgpt.com/';
 const pendingKey = (windowId) => `pendingPrompt:${windowId}`;
@@ -143,6 +143,10 @@ async function openChatGPT(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type?.startsWith('ANALYSIS_')) {
+    handleAnalysisMessage(message, sender).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
   if (message?.type?.startsWith('DOC_')) {
     handleDocumentMessage(message, sender).then(sendResponse).catch(error => sendResponse({ success: false, error: error.message }));
     return true;

@@ -7,6 +7,16 @@ function create(content) {
   // avoids that transition; the caller journals it, then minimizes before work.
   return chrome.windows.create({ ...content, type: 'popup', state: 'normal', focused: false, width: 800, height: 600 });
 }
+async function minimize(mode, id) {
+  // Brave/macOS can finish creating the native window AFTER create() resolves.
+  // Minimizing during that transition briefly activates it. Keep about:blank
+  // inactive until it settles; journal the deadline so a worker restart also
+  // waits before minimizing or loading ChatGPT.
+  const delay = (mode.chatWindowReadyAt || 0) - Date.now();
+  if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+  await chrome.windows.update(id, { state: 'minimized' });
+  mode.chatWindowReadyAt = 0;
+}
 
 async function ensure(mode, save, { matches, version }) {
   // Recover a window journaled just before the worker stopped, without opening
@@ -32,16 +42,17 @@ async function ensure(mode, save, { matches, version }) {
         const ownWindow = await create({ tabId: tab.id });
         if (!Number.isInteger(ownWindow?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
         mode.chatWindowId = ownWindow.id;
+        mode.chatWindowReadyAt = Date.now() + 800;
         mode.chatRevealed = false;
         await save(mode);
         // Enforce state only: focused:false would bring the next window in the
         // z-order forward. Creation can also return before state has settled.
-        await chrome.windows.update(ownWindow.id, { state: 'minimized' });
+        await minimize(mode, ownWindow.id);
         tab = await chrome.tabs.get(tab.id);
       } else {
         mode.chatWindowId = window.id;
         await save(mode);
-        if (!mode.chatRevealed && window.state !== 'minimized') await chrome.windows.update(window.id, { state: 'minimized' });
+        if (!mode.chatRevealed && window.state !== 'minimized') await minimize(mode, window.id);
       }
       await chrome.tabs.update(tab.id, { autoDiscardable: false });
       if (starting) {
@@ -67,11 +78,12 @@ async function ensure(mode, save, { matches, version }) {
   const window = await create({ url: 'about:blank' });
   if (!Number.isInteger(window?.id)) throw new Error('Chưa tạo được cửa sổ ChatGPT nền. Bấm thử lại.');
   mode.chatWindowId = window.id;
+  mode.chatWindowReadyAt = Date.now() + 800;
   mode.chatStartUrl = isChat(mode.conversationUrl) ? mode.conversationUrl : 'https://chatgpt.com/';
   mode.chatTabId = null;
   mode.chatRevealed = false;
   await save(mode);
-  await chrome.windows.update(window.id, { state: 'minimized' });
+  await minimize(mode, window.id);
   const tab = window.tabs?.[0] || (await chrome.tabs.query({ windowId: window.id }))[0];
   if (!Number.isInteger(tab?.id)) throw new Error('Chưa tìm thấy tab trong cửa sổ ChatGPT nền. Bấm thử lại.');
   mode.chatTabId = tab.id;

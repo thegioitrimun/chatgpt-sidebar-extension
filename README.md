@@ -31,17 +31,27 @@ Khi xảy ra lỗi, dùng **Thử lại** hoặc **Đọc lại ChatGPT**. Nếu
 
 Tệp, lịch sử và thông tin bộ được lưu trong hồ sơ trình duyệt; bộ đang chọn nằm trong `chrome.storage.local`. Nội dung đã gửi còn nằm trong tài khoản ChatGPT. **Bỏ tệp hoặc xóa bộ trong extension không xóa cuộc chat hay tệp trên ChatGPT**; quản lý các bản đã gửi tại ChatGPT. Nội dung bên trong tài liệu được coi là dữ liệu tham khảo, không phải lệnh điều khiển extension.
 
-## Đáp án tự động trên trang web
+## Đáp án tự động và trang dài (1.9.0)
 
 **Shift + Option + Q** trên Mac (**Alt + Shift + Q** trên Windows/Linux) bật/tắt đáp án trên tab web đang mở, không giới hạn ở Vinmec và không tự mở sidebar. Nếu phím tắt chưa được gán hoặc bị trùng, đổi tại `brave://extensions/shortcuts` / `chrome://extensions/shortcuts`.
 
-- Từ **1.8.1**, trang không có cấu trúc câu hỏi chuẩn vẫn được gửi: extension lấy toàn bộ văn bản hiển thị và để ChatGPT tự nhận diện câu hỏi, lựa chọn và trả đáp án. Nếu tách được câu hỏi rõ ràng, extension giữ số câu gốc và gán A/B/C theo thứ tự lựa chọn. Đọc cả iframe có quyền truy cập; không gửi nội dung ô nhập, phần ẩn hoặc đồng hồ có nhãn timer. Trang nội bộ trình duyệt và trang bị chặn quyền truy cập không được hỗ trợ.
-- Chế độ theo dõi câu mới khi thay đổi trang trong cùng tab. Câu đã tách được chia tối đa **5 câu/đợt**, mục tiêu dưới **16.000 ký tự**; câu riêng quá ngưỡng được gửi riêng. Văn bản trang chưa tách được chia thành các phần tối đa **14.000 ký tự**, gửi tuần tự và ghép đáp án; trang quá **200.000 ký tự** báo lỗi để mở từng phần, không âm thầm cắt mất nội dung. Câu đã xử lý được ghi nhớ theo nội dung và phiên bản tài liệu để tránh gửi lại khi tải lại.
-- Đáp án cập nhật ở **giữa cạnh dưới trang**, nền trong suốt và font theo trang. Khi chưa có đáp án, popup hiện trạng thái đang phân tích; lỗi đăng nhập/kết nối được hiện trực tiếp thay vì im lặng. Khi thành công, chỉ còn đáp án, ví dụ **`3D?, 4F, 5C?, 6B-D?, 7?`**. Dấu `?` cuối đáp án là kiến thức bổ sung khi thiếu căn cứ tài liệu; `7?` là chưa xác định được. Dữ kiện ảnh/âm thanh chưa đọc được dùng `?`; phần văn bản không có câu hỏi cũng trả `?`.
+- Đọc toàn bộ văn bản **đã tải**, kể cả dưới màn hình, cùng iframe có quyền truy cập. **Không tự cuộn**; khi bạn cuộn làm trang tải thêm hoặc đổi trang trong cùng tab, extension thu nhận nội dung mới. Không gửi nội dung ô nhập, phần ẩn hoặc đồng hồ có nhãn timer. Trang nội bộ trình duyệt không được hỗ trợ; iframe bị chặn và trang chỉ có ảnh, canvas hoặc video sẽ có trạng thái cần xử lý.
+- Bản chụp được truyền bằng gói có số thứ tự và xác nhận, tối đa **64 KiB/thông điệp**, kiểm tra SHA-256 rồi lưu IndexedDB. Bỏ giới hạn 200.000 ký tự; thiếu dung lượng hoặc nhận thiếu gói sẽ báo lỗi và giữ phần đã nhận. Nội dung chưa nhận diện được dùng lượt ChatGPT riêng để chuẩn hóa; câu trích xuất phải đối chiếu được với bản chụp. Các đoạn có phần chồng lấn; câu bị cắt được ghép rộng hơn hoặc đánh dấu cần kiểm tra.
+- Mỗi đợt tối đa **5 câu**, mục tiêu **14.000 ký tự tính cả prompt và ngữ cảnh**. Khi ChatGPT từ chối đầu vào dài, giảm xuống 2 rồi 1 câu. Câu riêng quá dài được gửi **đầy đủ trong TXT tạm**, chỉ giải khi ChatGPT xác nhận đọc được tệp. Giới hạn TXT là 50 MiB; lỗi tệp được giữ để thử lại, không bỏ câu âm thầm. Giới hạn tài khoản ChatGPT vẫn có thể chặn một tệp nhỏ hơn mức này.
+- Mã câu ổn định dựa trên nội dung, thứ tự lựa chọn, ngữ cảnh và phiên bản tài liệu. Đồng hồ, lựa chọn đáp án hoặc tải lại cùng nội dung không tạo yêu cầu mới. Giữ số câu và thứ tự trên trang; số trùng được phân biệt bằng nhãn **Khối**. Kết quả kiểm tra từng mã câu, chữ cái hợp lệ và câu nhiều lựa chọn trước khi ghép.
+- Đáp án cập nhật ở **giữa cạnh dưới trang**, nền trong suốt và font theo trang. Trong lúc chạy hiện tiến độ ngắn cùng đáp án đã nhận; hoàn tất thành công chỉ còn đáp án, ví dụ **`3D?, 4F, 5C?, 6B-D?, 7?`**. Dấu `?` cuối đáp án là kiến thức bổ sung khi thiếu căn cứ tài liệu; `7?` là chưa xác định được. Khi không chọn tài liệu, đáp án xác định được không tự thêm `?`. Dữ kiện ảnh/âm thanh chưa đọc được dùng `?`; trang không tìm thấy câu hỏi có thông báo rõ.
 - Nhấn lại phím tắt trên cùng tab hoặc tắt công tắc **Đáp án tự động** để dừng và ẩn popup. Nhấn trên tab khác bắt đầu phân tích tab đó, không chỉ tắt tab trước. Không có nút **Đáp án** nổi khi tắt. Bật lại đọc lượt đã gửi đang chờ trước khi gửi tiếp; các nút xử lý lỗi nằm trong Cài đặt hoặc Tài liệu.
 - Extension chỉ đọc nội dung; việc chọn và nộp đáp án do người dùng thực hiện. Khi đáp án tự động bật, phân tích trang thông thường tạm ngưng trên tab nguồn để tránh gửi trùng. Bấm **✕ Đóng sidebar** hoặc nút X của trình duyệt để đóng hẳn sidebar; hàng đợi và popup vẫn hoạt động. Nút đóng riêng dùng Side Panel API từ Chrome 141, trình duyệt cũ dùng X sẵn có.
 
 Nếu ChatGPT cần đăng nhập, hết hạn mức, có bản nháp khác, trả sai định dạng hoặc cửa sổ nền bị đóng, xem trạng thái rồi dùng **Mở ChatGPT**, **Đọc lại ChatGPT** hoặc nút thử lại tương ứng. Chế độ không tự bật lại sau khi khởi động lại trình duyệt. Kết quả AI cần được đối chiếu với tài liệu.
+
+### Tiếp tục và xử lý lỗi
+
+Trong **Cài đặt → Phiên phân tích đã lưu**, chọn phiên rồi dùng **Tiếp tục**, **Thử lại phần lỗi**, **Dừng** hoặc **Xóa phiên**. Bản chụp, câu hỏi, từng đợt, tệp TXT tạm và kết quả được giữ trên máy tối đa **7 ngày từ khi tạo phiên**. Xóa phiên hoặc dọn dữ liệu hết hạn chỉ xóa bản cục bộ, không xóa hội thoại trên ChatGPT. Sau khi đóng Brave, extension đợi bạn bấm Tiếp tục trên đúng trang, kiểm tra lại nội dung và nguồn trước khi gửi tiếp. Trang thay đổi sẽ cần phiên mới; các đáp án cũ vẫn nằm trong phiên đã lưu.
+
+Worker khởi động lại trong cùng phiên Brave tự phục hồi qua sự kiện và bộ đối soát mỗi phút. Trạng thái gửi được ghi **trước khi bấm gửi**, kết quả được lưu nguyên tử cùng tiến độ. Khi chưa rõ đã gửi hay chưa, extension **đọc lại đúng lượt trong hội thoại**, rồi tạm dừng nếu chưa xác minh được; không tự gửi trùng. Lỗi chắc chắn chưa gửi thử lại tối đa 3 lần sau **2, 5, 15 giây**; lỗi định dạng có một lượt sửa, giữ đáp án hợp lệ và đánh dấu phần còn lỗi. Các đợt khác tiếp tục với lỗi cục bộ; đăng nhập, hạn mức và cuộc chat không xác minh được tạm dừng hàng đợi liên quan.
+
+Nguồn tài liệu được cố định theo phiên bản khi bắt đầu phiên. Đổi bộ đang chọn không đổi nguồn của lượt đang chạy; lần bật tiếp theo dùng bộ mới. Hỏi tài liệu trực tiếp được ưu tiên giữa các đợt phân tích hoàn chỉnh. Không đóng Brave hoặc cửa sổ ChatGPT nếu muốn tiếp tục chạy; đóng sidebar vẫn hoạt động.
 
 ## Dùng nhanh
 
@@ -70,7 +80,7 @@ Tiện ích cần đọc trang web khi bạn bấm lấy nội dung hoặc bật
 node --check background.js
 node --check content/chatgpt-inject.js
 node --check sidepanel/sidepanel.js
-node --test tests/quiz.test.cjs tests/chatgpt-background.test.cjs tests/documents.test.cjs
+node --test tests/analysis.test.cjs tests/quiz.test.cjs tests/chatgpt-background.test.cjs tests/documents.test.cjs
 ```
 
 Không cần cài dependencies hay chạy build. Mã JavaScript và tài nguyên được tải trực tiếp bởi trình duyệt.

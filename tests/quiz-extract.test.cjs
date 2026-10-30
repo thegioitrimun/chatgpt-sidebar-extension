@@ -96,6 +96,40 @@ browserTest('keeps long question text intact for later queue batching', async ()
   assert.equal(question.text, stem);
 });
 
+browserTest('unlimited analysis captures a million loaded characters below the viewport without scrolling', async () => {
+  const page = await browser.newPage();
+  try {
+    const content = 'Dữ liệu kiểm tra. '.repeat(65000);
+    await page.setContent(`<main><p>${content}</p><p>END_OF_LOADED_CONTENT</p><canvas width="20" height="20"></canvas><iframe sandbox src="https://blocked.example/test"></iframe></main>`);
+    await page.addScriptTag({ content: source });
+    const result = await page.evaluate(() => ({ snapshot: extractQuizQuestions({ unlimited: true }), y: scrollY }));
+    assert(result.snapshot.pageText.length > 1000000); assert(result.snapshot.pageText.endsWith('END_OF_LOADED_CONTENT')); assert.equal(result.y, 0);
+    assert.equal(result.snapshot.pageTooLong, false); assert.equal(result.snapshot.mediaCount, 1); assert.equal(result.snapshot.iframes[0].readable, false);
+    assert.equal((await page.evaluate(() => extractQuizQuestions())).pageTooLong, true, 'old snapshot compatibility remains explicit about its limit');
+  } finally { await page.close(); }
+});
+
+browserTest('analysis snapshot includes all articles and questions outside the first main container', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<main><p>Câu 2: Câu đầu?</p><p>A. Một</p><p>B. Hai</p></main><article><p>Câu 9: Câu tiếp?</p><p>A. Ba</p><p>B. Bốn</p></article>');
+    await page.addScriptTag({ content: source });
+    const result = await page.evaluate(() => extractQuizQuestions({ unlimited: true }));
+    assert.equal(result.questions.length, 2); assert(result.pageText.includes('Câu đầu?')); assert(result.pageText.includes('Câu tiếp?'));
+  } finally { await page.close(); }
+});
+
+browserTest('Moodle grading/selection status and a timer do not change the analysis snapshot', async () => {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<main><div class="que"><div class="info"><h3>Question 7</h3><p class="state">Not yet answered</p><p class="grade">Marked out of 1</p></div><div class="qtext">Which value is even?</div><label><input type="radio" name="q">One</label><label><input type="radio" name="q">Two</label></div><span role="timer">00:59</span></main>');
+    await page.addScriptTag({ content: source });
+    const before = await page.evaluate(() => extractQuizQuestions({ unlimited: true }));
+    await page.evaluate(() => { document.querySelector('input').checked = true; document.querySelector('.state').textContent = 'Answer saved'; document.querySelector('[role=timer]').textContent = '00:54'; });
+    assert.deepEqual(await page.evaluate(() => extractQuizQuestions({ unlimited: true })), before);
+  } finally { await page.close(); }
+});
+
 browserTest('recognizes individually named checkboxes and choices labelled only through ARIA', async () => {
   const questions = await extract(`<fieldset><legend>18. Which values are even?</legend><label><input type="checkbox" name="even2">Two</label><label><input type="checkbox" name="even3">Three</label></fieldset><div class="question"><span class="question-number">23</span><p>Which direction is north?</p><input type="radio" name="directions" aria-label="Up"><input type="radio" name="directions" aria-label="Down"></div>`);
   assert.deepEqual(questions.map(q => [q.number, q.options]), [[18, ['Two', 'Three']], [23, ['Up', 'Down']]]);

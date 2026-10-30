@@ -74,6 +74,7 @@ async function quizRestoreDiscard(mode) {
 }
 
 async function quizToggle(windowId, enabled, sourceTab, expectedRunId) {
+  if (typeof analysisToggle === 'function') return analysisToggle(windowId, enabled, sourceTab, expectedRunId);
   return quizSerial(windowId, async () => {
     let mode = await quizGet(windowId);
     if (expectedRunId && mode?.runId !== expectedRunId) return { success: false, stale: true };
@@ -281,6 +282,7 @@ async function quizChatEvent(message, sender) {
 async function quizWake(windowId, tabId) {
   return quizSerial(windowId, async () => {
     const mode = await quizGet(windowId);
+    if (mode?.engine === 'analysis' && typeof analysisPump === 'function') return analysisPump(mode.sessionId, true);
     if (!mode?.enabled || (tabId && mode.chatTabId !== tabId)) return;
     // A freshly ready bridge can recover an answer already sent, including
     // sessions paused by an older renderer. READ never submits another prompt.
@@ -292,6 +294,7 @@ async function quizWake(windowId, tabId) {
 }
 
 async function handleQuizMessage(message, sender) {
+  if (typeof analysisLegacyMessage === 'function') { const response = await analysisLegacyMessage(message, sender); if (response !== null) return response; }
   const fromPage = sender.tab && quizHost(sender.url);
   const fromChat = sender.tab && chatHost(sender.url) && sender.frameId === 0;
   const fromPanel = sender.url?.startsWith(chrome.runtime.getURL('')) && (!chrome.runtime.id || sender.id === chrome.runtime.id);
@@ -369,7 +372,7 @@ async function handleQuizMessage(message, sender) {
 chrome.tabs.onRemoved.addListener(async tabId => {
   const sessions = await chrome.storage.session.get(null);
   for (const [key, value] of Object.entries(sessions)) {
-    if (!key.startsWith('quizSession:') || !value.enabled || (value.tabId !== tabId && value.chatTabId !== tabId)) continue;
+    if (!key.startsWith('quizSession:') || value.engine === 'analysis' || !value.enabled || (value.tabId !== tabId && value.chatTabId !== tabId)) continue;
     await quizSerial(value.windowId, async () => {
       const mode = await quizGet(value.windowId);
       if (mode.tabId === tabId) { mode.enabled = false; if (quizUsesDocuments(mode)) setTimeout(() => docCancelQuiz(mode).catch(console.error), 0); await quizRestoreDiscard(mode); }

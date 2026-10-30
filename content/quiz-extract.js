@@ -1,5 +1,5 @@
 // Read rendered questions and choices without changing any page controls.
-function extractQuizQuestions() {
+function extractQuizQuestions(settings = {}) {
   const clean = value => (value || '').replace(/\s+/g, ' ').trim();
   const controlSelector = 'input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]';
   const questionSelector = '.que, .question, .question-item, .question-container, .quiz-question, .quiz_question, [data-question-id], [data-question-number]';
@@ -190,16 +190,16 @@ function extractQuizQuestions() {
     if (!a || !b || a === b) return 0;
     return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
   });
-  return { url: location.href, title: document.title, questions, ...extractQuizPageText() };
+  return { url: location.href, title: document.title, questions, ...extractQuizPageText(settings) };
 }
 
 // A page need not expose radio buttons or a recognizable quiz layout. Keep a
 // text fallback so the hotkey still submits it for the model to read.
-function extractQuizPageText() {
-  const root = document.querySelector('main, article, [role="main"]') || document.body;
+function extractQuizPageText(settings = {}) {
+  const root = settings.unlimited ? document.body || document.documentElement : document.querySelector('main, article, [role="main"]') || document.body;
   if (!root) return { pageText: '' };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), lines = [];
-  const excluded = 'script,style,noscript,input,textarea,select,nav,footer,[hidden],[aria-hidden="true"],[role="timer"],time,.timer,.countdown,#chatgpt-quiz-overlay';
+  const excluded = 'script,style,noscript,input,textarea,select,nav,footer,[hidden],[aria-hidden="true"],[role="timer"],time,.timer,.countdown,.que .state,.que .grade,.questionflag,.question-flag,.flag,#chatgpt-quiz-overlay';
   const visibility = new WeakMap();
   const visible = element => {
     if (!element) return true;
@@ -215,7 +215,9 @@ function extractQuizPageText() {
     if (!value || !parent || parent.closest(excluded)) continue;
     if (!visible(parent)) continue;
     lines.push(value); length += value.length + 1;
-    if (length > 200000) return { pageText: lines.join('\n').slice(0, 200000), pageTooLong: true };
+    if (!settings.unlimited && length > 200000) return { pageText: lines.join('\n').slice(0, 200000), pageTooLong: true };
   }
-  return { pageText: lines.join('\n'), pageTooLong: false };
+  const media = [...root.querySelectorAll('canvas,video,audio,img')].filter(element => !element.closest(excluded) && visible(element) && (element.tagName !== 'IMG' || !element.getAttribute('alt'))).length;
+  const iframes = [...document.querySelectorAll('iframe')].filter(element => visible(element)).map(element => ({ url: element.src || 'about:blank', readable: !element.hasAttribute('sandbox') || element.sandbox.contains('allow-same-origin') }));
+  return { pageText: lines.join('\n'), pageTooLong: false, ...(settings.unlimited ? { mediaCount: media, iframes } : {}) };
 }

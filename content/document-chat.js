@@ -162,7 +162,7 @@ globalThis.initializeSidebarDocumentChat = function ({ findInput, inputText, nor
       respond({ success: true }); return;
     }
     if (!['DOC_CHAT_START', 'DOC_CHAT_READ'].includes(message.type)) return;
-    if (!['upload', 'chat', 'analysis', 'quiz'].includes(message.kind) || !['jobId', 'token', 'runId', 'revisionId', 'prompt'].every(key => typeof message[key] === 'string')) { respond({ success: false }); return; }
+    if (!['upload', 'chat', 'analysis', 'quiz', 'analysis-task'].includes(message.kind) || !['jobId', 'token', 'runId', 'revisionId', 'prompt'].every(key => typeof message[key] === 'string')) { respond({ success: false }); return; }
     if (!matches(message)) { respond({ success: false, error: 'Cuộc chat không thuộc bộ tài liệu hiện tại.' }); return; }
     if (current && !current.cancelled && !current.finished) { respond({ success: current.jobId === message.jobId && current.token === message.token && current.runId === message.runId, waiting: true }); return; }
     const reading = message.type === 'DOC_CHAT_READ';

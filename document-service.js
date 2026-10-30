@@ -196,6 +196,40 @@ async function docCancelQuiz(mode) {
     await docSaveRuntime(runtime); docLater(runtime.revisionId);
   });
 }
+function docAnalysisJob(session, task) {
+  return { id: task.id, token: task.token, kind: 'analysis-task', analysisSessionId: session.id, analysisRunId: session.runId, createdAt: task.createdAt, sent: task.sent === true };
+}
+async function docEnqueueAnalysis(session, task) {
+  return docSerial(session.sourceRef.revisionId, async () => {
+    const owner = await analysisSession(session.id), currentTask = await analysisTask(task.id);
+    if (!owner?.enabled || owner.paused || owner.runId !== session.runId || owner.currentTaskId !== task.id || currentTask?.token !== task.token || currentTask.snapshotId !== owner.snapshotId) return;
+    const revision = await sidebarDocuments.get('revisions', session.sourceRef.revisionId);
+    if (!revision || !await sidebarDocuments.get('collections', session.sourceRef.collectionId)) throw Error('Nguồn tài liệu đã bị xóa. Chọn lại nguồn rồi tiếp tục.');
+    const runtime = await docRuntime(revision.id, session.windowId);
+    runtime.analysisRuns ||= {};
+    if (runtime.analysisRuns[session.id] !== session.runId) {
+      runtime.analysisRuns[session.id] = session.runId; runtime.chatRevealed = false;
+      if (runtime.error) { await docCancelCurrent(runtime); if (runtime.current) runtime.current.dispatched = false; runtime.error = ''; runtime.waiting = ''; }
+    }
+    const existing = [runtime.current, ...runtime.queue].find(job => job?.id === task.id && job.analysisSessionId === session.id);
+    if (existing) {
+      if (existing.token !== task.token || existing.analysisRunId !== session.runId) {
+        if (runtime.current === existing) await docCancelCurrent(runtime);
+        Object.assign(existing, docAnalysisJob(session, task), { dispatched: false });
+      }
+    } else runtime.queue.push(docAnalysisJob(session, task));
+    await docSaveRuntime(runtime); docLater(runtime.revisionId);
+  });
+}
+async function docCancelAnalysis(sessionId, taskId) {
+  for (const [key, value] of Object.entries(await chrome.storage.session.get(null))) if (key.startsWith('docRuntime:')) await docSerial(value.revisionId, async () => {
+    const runtime = await docGetRuntime(value.revisionId); if (!runtime) return;
+    const matches = job => job?.analysisSessionId === sessionId && (!taskId || job.id === taskId);
+    runtime.queue = runtime.queue.filter(job => !matches(job));
+    if (matches(runtime.current)) { await docCancelCurrent(runtime); runtime.current = null; runtime.error = ''; }
+    await docSaveRuntime(runtime); docLater(runtime.revisionId);
+  });
+}
 async function docCancelCurrent(runtime) {
   if (runtime.chatTabId && runtime.current) await chrome.tabs.sendMessage(runtime.chatTabId, { type: 'DOC_CHAT_CANCEL', revisionId: runtime.revisionId, runId: runtime.runId, jobId: runtime.current.id, token: runtime.current.token }, { frameId: 0 }).catch(() => {});
 }
@@ -245,7 +279,7 @@ async function docPump(id, wake = false) {
         }
       }
       if (!runtime.current && revision.ready && runtime.queue.length) {
-        const index = runtime.queue.findIndex(job => job.kind !== 'quiz');
+        const index = runtime.queue.findIndex(job => ['chat', 'analysis'].includes(job.kind));
         runtime.current = runtime.queue.splice(index < 0 ? 0 : index, 1)[0];
       }
       await docSaveRuntime(runtime);
@@ -253,14 +287,18 @@ async function docPump(id, wake = false) {
     const job = runtime.current;
     if (!job || (job.dispatched && !wake)) return;
     try {
-      const tab = await sidebarBackgroundChat.ensure(runtime, docSaveRuntime, { matches: url => !revision.conversationUrl || sidebarQuiz.conversationUrl(url) === revision.conversationUrl, version: 7 });
+      const tab = await sidebarBackgroundChat.ensure(runtime, docSaveRuntime, { matches: url => !revision.conversationUrl || sidebarQuiz.conversationUrl(url) === revision.conversationUrl, version: 8 });
       if (tab.status === 'loading') return;
-      const response = await chrome.tabs.sendMessage(tab.id, { type: job.sent ? 'DOC_CHAT_READ' : 'DOC_CHAT_START', revisionId: id, runId: runtime.runId, jobId: job.id, token: job.token, kind: job.kind, file: job.file, prompt: job.prompt, questions: job.questions, referenceUrl: revision.conversationUrl || '' }, { frameId: 0 }).catch(() => null);
+      const content = job.kind === 'analysis-task' ? await analysisBuildTask(job.analysisSessionId, job.id) : job;
+      if (!content || (job.kind === 'analysis-task' && (content.session.runId !== job.analysisRunId || content.task.token !== job.token))) { await docCancelCurrent(runtime); runtime.current = null; await docSaveRuntime(runtime); docLater(id); return; }
+      if (job.kind === 'analysis-task' && content.task.sent && !job.sent) { job.sent = true; await docSaveRuntime(runtime); }
+      const response = await chrome.tabs.sendMessage(tab.id, { type: job.sent ? 'DOC_CHAT_READ' : 'DOC_CHAT_START', revisionId: id, runId: runtime.runId, jobId: job.id, token: job.token, kind: content.kind, file: content.file, prompt: content.prompt, questions: content.questions, referenceUrl: revision.conversationUrl || '' }, { frameId: 0 }).catch(() => null);
       if (response?.success) { job.dispatched = true; runtime.waiting = ''; }
       else if (response?.waiting || !response) { runtime.waiting = response?.draft ? 'Đang chờ ô ChatGPT trống; giữ nguyên bản nháp.' : 'Đang chờ ChatGPT tải xong hoặc hoàn tất lượt trước…'; job.dispatched = false; }
       else throw new Error(response.error || 'ChatGPT chưa sẵn sàng. Mở ChatGPT để kiểm tra đăng nhập và tài liệu.');
       await docSaveRuntime(runtime);
       if (runtime.waiting) for (const queued of [runtime.current, ...runtime.queue]) if (queued?.kind === 'quiz') await docQuizEvent(queued, 'waiting', { waiting: runtime.waiting });
+      if (runtime.waiting) for (const queued of [runtime.current, ...runtime.queue]) if (queued?.kind === 'analysis-task') await analysisTransportEvent(queued.analysisSessionId, queued.id, 'waiting', { waiting: runtime.waiting, expectedRunId: queued.analysisRunId, expectedToken: queued.token });
     } catch (error) { await docFail(runtime, error.message); }
   });
 }
@@ -275,9 +313,15 @@ async function docFail(runtime, error, definitelyUnsent = false) {
       await sidebarDocuments.put('revisions', revision);
     }
     await docQuizEvent(runtime.current, 'error', { error: runtime.error, definitelyUnsent });
+    if (runtime.current.kind === 'analysis-task') {
+      const result = await analysisTransportEvent(runtime.current.analysisSessionId, runtime.current.id, 'error', { error: runtime.error, definitelyUnsent, reading: runtime.current.readAttempted, expectedRunId: runtime.current.analysisRunId, expectedToken: runtime.current.token });
+      if (result.success && !result.paused) { runtime.current = null; runtime.error = ''; }
+    }
   }
   for (const queued of runtime.queue) if (queued.kind === 'quiz') await docQuizEvent(queued, 'error', { error: runtime.error });
+  if (runtime.error) for (const queued of runtime.queue) if (queued.kind === 'analysis-task') await analysisTransportEvent(queued.analysisSessionId, queued.id, 'error', { error: runtime.error, definitelyUnsent: !queued.sent, expectedRunId: queued.analysisRunId, expectedToken: queued.token });
   await docSaveRuntime(runtime);
+  if (!runtime.error && !runtime.current) docLater(runtime.revisionId);
 }
 async function docOwner(tabId) {
   return Object.entries(await chrome.storage.session.get(null)).find(([key, runtime]) => key.startsWith('docRuntime:') && runtime.chatTabId === tabId)?.[1];
@@ -288,6 +332,10 @@ async function docChatEvent(message, sender) {
   return docSerial(owner.revisionId, async () => {
     const runtime = await docGetRuntime(owner.revisionId), job = runtime?.current;
     if (!job || job.id !== message.jobId || job.token !== message.token || runtime.runId !== message.runId || runtime.chatTabId !== sender.tab.id) return { success: false, stale: true };
+    if (job.kind === 'analysis-task') {
+      const session = await analysisSession(job.analysisSessionId), task = await analysisTask(job.id);
+      if (!session?.enabled || session.runId !== job.analysisRunId || session.currentTaskId !== job.id || task?.token !== job.token || task.status === 'cancelled') return { success: false, stale: true };
+    }
     const revision = await sidebarDocuments.get('revisions', owner.revisionId);
     // MessageSender.url can retain the original document URL after SPA routing.
     // Bind location reports to the browser's current tab URL, not a claimed URL.
@@ -296,6 +344,7 @@ async function docChatEvent(message, sender) {
     const reported = sidebarQuiz.conversationUrl(message.conversationUrl);
     if ((revision.conversationUrl && (revision.conversationUrl !== url || reported !== url)) || (url && reported !== url)) return { success: false, stale: true };
     if (message.type === 'DOC_FILE_CHUNK') {
+      if (job.kind === 'analysis-task') return analysisFileChunk(job.analysisSessionId, job.id, message.offset);
       if (job.kind !== 'upload' || !Number.isSafeInteger(message.offset) || message.offset < 0 || message.offset >= job.file.size || message.offset % sidebarDocuments.CHUNK_SIZE !== 0) return { success: false };
       const file = await sidebarDocuments.get('files', job.file.id);
       if (!file?.blob) return { success: false, error: 'Tệp cục bộ không còn. Chọn lại tệp.' };
@@ -308,6 +357,7 @@ async function docChatEvent(message, sender) {
       if (job.sent) return { success: false, stale: true };
       const authorized = await docQuizEvent(job, 'send');
       if (!authorized.success) return authorized;
+      if (job.kind === 'analysis-task') { const authorization = await analysisTransportEvent(job.analysisSessionId, job.id, 'send', { expectedRunId: job.analysisRunId, expectedToken: job.token }); if (!authorization.success) return authorization; }
       job.sent = true;
     } else if (message.type === 'DOC_CHAT_UPLOADING' && job.kind === 'upload') {
       revision.fileStates[job.file.id] = { state: 'uploading' }; await sidebarDocuments.put('revisions', revision);
@@ -321,6 +371,14 @@ async function docChatEvent(message, sender) {
         if (message.text.trim() !== `DOC_READY:${job.id}`) { await docFail(runtime, 'ChatGPT chưa xác nhận đọc được tệp. Kiểm tra tài liệu rồi thử lại.'); return { success: true }; }
         revision.fileStates[job.file.id] = { state: 'ready' }; revision.ready = revision.files.every(file => revision.fileStates[file.id]?.state === 'ready');
         await sidebarDocuments.put('revisions', revision);
+      } else if (job.kind === 'analysis-task') {
+        const result = await analysisTransportEvent(job.analysisSessionId, job.id, 'result', { text: message.text, expectedRunId: job.analysisRunId, expectedToken: job.token });
+        if (!result.success && !result.stale) return result;
+        if (result.continuationTaskId) {
+          const session = await analysisSession(job.analysisSessionId), next = await analysisTask(result.continuationTaskId);
+          runtime.current = docAnalysisJob(session, next); runtime.error = ''; runtime.waiting = '';
+          await docSaveRuntime(runtime); docLater(runtime.revisionId); return { success: true };
+        }
       } else if (job.kind === 'quiz') {
         const result = await docQuizEvent(job, 'result', { text: message.text });
         if (!result.success && !result.stale) return result;
@@ -363,6 +421,7 @@ async function docGC() {
   for (const file of await sidebarDocuments.all('files')) if (!referenced.has(file.id) && file.stagedAt < Date.now() - 600000) await sidebarDocuments.remove('files', file.id);
 }
 async function handleDocumentMessage(message, sender) {
+  if (typeof analysisOwnChat === 'function' && (message.type.startsWith('DOC_CHAT_') || message.type === 'DOC_FILE_CHUNK')) { const response = await analysisOwnChat(message, sender); if (response !== null) return response; }
   const fromPanel = sender.id === chrome.runtime.id && sender.url?.startsWith(chrome.runtime.getURL(''));
   const fromChat = sender.id === chrome.runtime.id && sender.tab && sender.frameId === 0 && chatHost(sender.url);
   if (message.type === 'DOC_CHAT_READY' && fromChat) { const owner = await docOwner(sender.tab.id); if (owner) { docPump(owner.revisionId, true).catch(console.error); return { success: true }; } return { success: false }; }

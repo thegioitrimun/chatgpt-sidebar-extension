@@ -28,7 +28,7 @@
   }
   function render() {
     if (!topFrame) return;
-    const currentPage = verified && state.pageUrl === location.href;
+    const currentPage = (verified || (state.engine === 'analysis' && state.error)) && state.pageUrl === location.href;
     if (!state.enabled || state.collapsed || !currentPage) { host?.remove(); host = root = null; return; }
     if (!host?.isConnected) {
       host = document.createElement('div'); host.id = 'chatgpt-quiz-overlay';
@@ -43,12 +43,17 @@
     }
     const section = root.querySelector('section'); section.replaceChildren();
     section.className = 'panel'; section.setAttribute('aria-label', 'Đáp án thử nghiệm');
-    const answers = document.createElement('div'); answers.className = 'answers'; answers.textContent = state.error ? state.status : state.answers || state.status || 'Đang đọc trang để phân tích…';
-    answers.setAttribute('role', state.error ? 'alert' : 'status');
+    const answers = document.createElement('div'); answers.className = 'answers';
+    const pageAnswers = verified ? state.answers : '';
+    answers.textContent = state.engine === 'analysis' ? [pageAnswers, state.progress || (!pageAnswers ? state.status : '')].filter(Boolean).join('\n') : state.error ? state.status : state.answers || state.status || 'Đang đọc trang để phân tích…';
+    answers.style.whiteSpace = 'pre-wrap'; answers.setAttribute('role', state.error ? 'alert' : 'status');
     section.append(answers);
     syncTypography();
   }
-  function showError(error) { state = { ...state, error: true, status: error.message || 'Không kết nối được extension. Tải lại trang để tiếp tục.' }; render(); }
+  function showError(error) {
+    const message = error.message || 'Không kết nối được extension. Tải lại trang để tiếp tục.';
+    state = { ...state, error: true, status: message, ...(state.engine === 'analysis' ? { progress: message } : {}) }; render();
+  }
   function apply(next) {
     if (next.runId !== state.runId || next.enabled !== state.enabled) { signature = ''; verified = false; }
     state = next; render();
@@ -63,13 +68,34 @@
     if (!state.enabled) return;
     const runId = state.runId;
     try {
-      const snapshot = extractQuizQuestions();
-      const next = JSON.stringify([snapshot.url, snapshot.questions, snapshot.questions.length ? '' : snapshot.pageText]);
+      const snapshot = extractQuizQuestions({ unlimited: state.engine === 'analysis' });
+      const next = JSON.stringify([snapshot.url, snapshot.questions, state.engine === 'analysis' || !snapshot.questions.length ? snapshot.pageText : '']);
       if (next === signature) return;
-      const response = await send('QUIZ_SNAPSHOT', snapshot);
+      const response = state.engine === 'analysis' ? await transmit(snapshot, runId) : await send('QUIZ_SNAPSHOT', snapshot);
       if (!response?.success && !response?.stale) throw new Error(response?.error || 'Chưa đọc được câu hỏi.');
       if (response?.success && state.runId === runId && location.href === snapshot.url) { signature = next; verified = true; render(); }
     } catch (error) { if (state.runId === runId) showError(error); }
+  }
+  async function transmit(snapshot, runId) {
+    const serialized = JSON.stringify(snapshot), bytes = new TextEncoder().encode(serialized);
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const begin = await send('ANALYSIS_CAPTURE_BEGIN', { url: snapshot.url, hash, bytes: bytes.length });
+    if (!begin?.success || begin.duplicate) return begin;
+    let sequence = begin.next || 0;
+    while (sequence * 45000 < bytes.length && state.enabled && state.runId === runId && snapshot.url === location.href) {
+      const chunk = bytes.subarray(sequence * 45000, (sequence + 1) * 45000);
+      let binary = ''; for (let index = 0; index < chunk.length; index += 8192) binary += String.fromCharCode(...chunk.subarray(index, index + 8192));
+      let response;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { response = await send('ANALYSIS_CAPTURE_CHUNK', { captureId: begin.captureId, sequence, data: btoa(binary) }); if (response?.success) break; }
+        catch (error) { if (attempt === 2) throw error; }
+      }
+      if (!response?.success) throw Error(response?.error || 'Không lưu được gói trang. Phần đã nhận vẫn được giữ.');
+      if (response.next <= sequence) throw Error('Không xác nhận được thứ tự gói trang.');
+      sequence = response.next;
+    }
+    if (!state.enabled || state.runId !== runId || snapshot.url !== location.href) return { success: false, stale: true };
+    return send('ANALYSIS_CAPTURE_COMMIT', { captureId: begin.captureId });
   }
   async function refresh() {
     try { const response = await send('QUIZ_PAGE_READY'); if (response?.success) { signature = ''; apply(response.state); } }

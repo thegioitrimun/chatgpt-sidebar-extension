@@ -29,3 +29,28 @@ try { ({ chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')); }
     assert.equal(await page.locator('#chatgpt-quiz-overlay').count(), 0);
   } finally { await browser.close(); }
 });
+
+(chromium ? test : test.skip)('capture errors replace old progress while keeping answers already received', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_EXECUTABLE_PATH } : {}) });
+  try {
+    const page = await browser.newPage(); await page.route('https://fixture.example/**', route => route.fulfill({ contentType: 'text/html', body: '<main><p>Câu 7: Câu hỏi mới?</p></main>' })); await page.goto('https://fixture.example/');
+    await page.evaluate(() => {
+      const state = { enabled: true, engine: 'analysis', runId: 'capture-run', pageUrl: location.href, answers: '1B', progress: 'Đang chờ…' };
+      window.chrome = { runtime: { id: 'test', onMessage: { addListener() {}, removeListener() {} }, async sendMessage(message) {
+        if (message.type === 'QUIZ_PAGE_READY') return { success: true, state };
+        return { success: false, error: 'Không đủ dung lượng. Phần đã nhận vẫn được giữ.' };
+      } } };
+    });
+    for (const name of ['quiz-extract.js', 'quiz-page.js']) await page.addScriptTag({ content: fs.readFileSync(path.join(__dirname, '../content', name), 'utf8') });
+    // An initial error is visible, but unverified historical answers stay hidden.
+    await page.waitForFunction(() => document.querySelector('#chatgpt-quiz-overlay')?.shadowRoot?.textContent.includes('Không đủ dung lượng'));
+    assert(!(await page.locator('#chatgpt-quiz-overlay').innerText()).includes('1B'));
+    // Verify the rendering path directly through a successful capture first.
+    await page.evaluate(() => { chrome.runtime.sendMessage = async message => message.type === 'QUIZ_PAGE_READY' ? { success: true, state: { enabled: true, engine: 'analysis', runId: 'next-run', pageUrl: location.href, answers: '1B', progress: 'Đang chờ…' } } : { success: true, duplicate: true }; sidebarQuizPage.refresh(); });
+    await page.waitForFunction(() => document.querySelector('#chatgpt-quiz-overlay')?.shadowRoot?.textContent.includes('1B'));
+    await page.evaluate(() => { chrome.runtime.sendMessage = async () => ({ success: false, error: 'Không đủ dung lượng. Phần đã nhận vẫn được giữ.' }); document.querySelector('p').textContent += ' nội dung mới'; });
+    await page.waitForFunction(() => document.querySelector('#chatgpt-quiz-overlay')?.shadowRoot?.querySelector('[role=alert]')?.textContent.includes('Không đủ dung lượng'));
+    const text = await page.locator('#chatgpt-quiz-overlay').evaluate(node => node.shadowRoot.querySelector('.answers').textContent);
+    assert(text.includes('1B')); assert(!text.includes('Đang chờ'));
+  } finally { await browser.close(); }
+});
